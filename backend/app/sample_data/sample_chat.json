@@ -1,0 +1,91 @@
+{
+  "consent_confirmed": false,
+  "conversation": {
+    "title": "WhatsApp chat with Ali",
+    "person": "Ali",
+    "source": "sample_whatsapp"
+  },
+  "messages": [
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:00:00",
+      "content": "Hello! How are you?"
+    },
+    {
+      "sender": "System",
+      "timestamp": "2026-01-02T12:00:05",
+      "content": "Messages and calls are end-to-end encrypted."
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:02:30",
+      "content": "I am 22 years old now, haha"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:03:10",
+      "content": "I study computer science at FAST University"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:05:00",
+      "content": "Actually I prefer chai over coffee 🍵"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:06:12",
+      "content": "I like playing football and I go to the gym daily"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:07:00",
+      "content": "I love cricket, cricket, cricket! 🏏"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:08:00",
+      "content": "Mujhe cricket bahut pasand hai"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:08:00",
+      "content": "Mujhe cricket bahut pasand hai"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:09:00",
+      "content": "I always wake up early morning"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:10:00",
+      "content": "My brother's name is Hassan and he works as a doctor in Karachi"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:11:00",
+      "content": ""
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:12:00",
+      "content": "",
+      "message_type": "sticker"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:13:00",
+      "content": "AHAHAHAHAHAHAHAHAHAHA !!!! BUY NOW http://spam.example/x http://spam.example/y"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T12:14:00",
+      "content": "I think the new AI tools are really useful"
+    },
+    {
+      "sender": "Ali",
+      "timestamp": "2026-01-02T13:00:00",
+      "content": "Bye, talk to you later. Good night"
+    }
+  ]
+}

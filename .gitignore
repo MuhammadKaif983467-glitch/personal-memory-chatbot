@@ -1,0 +1,39 @@
+# ---- Environment / secrets ----
+.env
+.env.*
+!.env.example
+*.env.local
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+htmlcov/
+.coverage
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+*.local
+npm-debug.log*
+*.tsbuildinfo
+
+# ---- Data (runtime artifacts, never commit) ----
+data/*.db
+data/*.db-*
+data/*.bak
+data/chroma/
+data/imports/*
+data/processed/*
+data/exports/*
+!data/imports/.gitkeep
+!data/processed/.gitkeep
+!data/exports/.gitkeep
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
