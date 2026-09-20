@@ -30,7 +30,7 @@ class LocalProvider(AIProvider):
 
     @property
     def configured(self) -> bool:
-        return False  # offline heuristic provider needs no API key
+        return True  # offline heuristic provider needs no API key
 
     @property
     def embedding_dim(self):

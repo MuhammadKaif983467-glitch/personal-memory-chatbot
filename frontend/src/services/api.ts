@@ -10,14 +10,17 @@ import type {
   MemoryVersion,
   MergeResult,
   MessageRecord,
+  PaginatedMessages,
   Person,
   PersonProfile,
   Project,
   ProjectCreatePayload,
   ProjectDetail,
+  ProjectUpdatePayload,
   VoiceStatus,
   WritingStyle,
 } from '../types'
+import { classifyHttpError, classifyNetworkError, type ClassifiedError } from './errors'
 
 const API_BASE: string =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ||
@@ -26,12 +29,16 @@ const API_BASE: string =
 export class ApiError extends Error {
   status: number
   details: unknown
+  classified: ClassifiedError
 
   constructor(message: string, status: number, details?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.details = details
+    this.classified = status === 0
+      ? classifyNetworkError(this)
+      : classifyHttpError(status, message, details)
   }
 }
 
@@ -40,12 +47,13 @@ type RequestOptions = {
   body?: unknown
   formData?: FormData
   query?: Record<string, string | number | undefined>
+  signal?: AbortSignal
 }
 
 const REQUEST_TIMEOUT_MS = 30_000
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, formData, query } = options
+  const { method = 'GET', body, formData, query, signal } = options
   let url = `${API_BASE}${path}`
   if (query) {
     const params = new URLSearchParams()
@@ -59,7 +67,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const init: RequestInit = { method }
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-  init.signal = controller.signal
+  init.signal = signal ?? controller.signal
 
   if (formData) {
     init.body = formData
@@ -177,6 +185,8 @@ export const api = {
   getProject: (id: number) => request<ProjectDetail>(`/projects/${id}`),
   createProject: (payload: ProjectCreatePayload) =>
     request<Project>('/projects', { method: 'POST', body: payload }),
+  updateProject: (id: number, payload: ProjectUpdatePayload) =>
+    request<Project>(`/projects/${id}`, { method: 'PATCH', body: payload }),
   deleteProject: (id: number) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
   listProjectPeople: (projectId: number) =>
     request<Person[]>(`/projects/${projectId}/people`),
@@ -204,32 +214,76 @@ export const api = {
   getMemoryVersions: (memoryId: number) =>
     request<MemoryVersion[]>(`/memories/${memoryId}/versions`),
 
+  inspectUpload: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<{ file_type: string; platform: string; confidence: number; inner_files: [string, number][] }>('/import/universal/inspect', { method: 'POST', formData: form })
+  },
+  universalPreview: (file: File, person: string = '') => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('person', person)
+    return request<ImportPreview>('/import/universal/preview', { method: 'POST', formData: form })
+  },
+  universalImport: (file: File, person: string, consentConfirmed: boolean, projectId?: number | null) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('person', person)
+    form.append('consent_confirmed', String(consentConfirmed))
+    if (projectId != null) form.append('project_id', String(projectId))
+    return request<ImportResult>('/import/universal', { method: 'POST', formData: form })
+  },
+
   voiceStatus: () => request<VoiceStatus>('/voice/status'),
 
-  listConversations: () => request<Conversation[]>('/conversations'),
+  listConversations: (projectId?: number | null, signal?: AbortSignal) =>
+    request<Conversation[]>('/conversations', {
+      query: projectId != null ? { project_id: projectId } : undefined,
+      signal,
+    }),
   getConversation: (id: number) => request<Conversation>(`/conversations/${id}`),
   deleteConversation: (id: number) =>
     request<ConversationDeleteResult>(`/conversations/${id}`, { method: 'DELETE' }),
-  listMessages: (params: { conversationId?: number; personId?: number; limit?: number } = {}) =>
-    request<MessageRecord[]>('/messages', {
+  listMessages: (params: { conversationId?: number; personId?: number; limit?: number; offset?: number } = {}) =>
+    request<PaginatedMessages>('/messages', {
       query: {
         conversation_id: params.conversationId,
         person_id: params.personId,
         limit: params.limit ?? 500,
+        offset: params.offset ?? 0,
       },
     }),
   getMessage: (id: number) => request<MessageRecord>(`/messages/${id}`),
   deleteMessage: (id: number) => request<void>(`/messages/${id}`, { method: 'DELETE' }),
 
+  searchMessages: (params: {
+    query: string
+    conversationId?: number
+    personId?: number
+    projectId?: number
+    limit?: number
+  }) =>
+    request<MessageRecord[]>('/search', {
+      method: 'POST',
+      body: {
+        query: params.query,
+        conversation_id: params.conversationId,
+        person_id: params.personId,
+        project_id: params.projectId,
+        limit: params.limit ?? 50,
+      },
+    }),
+
   getSettings: () => request<AppSettings>('/settings'),
 
   importJson: (payload: unknown) =>
     request<ImportResult>('/import/json', { method: 'POST', body: payload }),
-  importCsv: (file: File, person: string, consentConfirmed: boolean) => {
+  importCsv: (file: File, person: string, consentConfirmed: boolean, projectId?: number | null) => {
     const form = new FormData()
     form.append('file', file)
     form.append('person', person)
     form.append('consent_confirmed', String(consentConfirmed))
+    if (projectId != null) form.append('project_id', String(projectId))
     return request<ImportResult>('/import/csv', { method: 'POST', formData: form })
   },
   importPreview: (file: File, person: string = '') => {
@@ -238,20 +292,22 @@ export const api = {
     form.append('person', person)
     return request<ImportPreview>('/import/preview', { method: 'POST', formData: form })
   },
-  importTxt: (file: File, person: string, consentConfirmed: boolean, title?: string) => {
+  importTxt: (file: File, person: string, consentConfirmed: boolean, title?: string, projectId?: number | null) => {
     const form = new FormData()
     form.append('file', file)
     form.append('person', person)
     form.append('consent_confirmed', String(consentConfirmed))
     if (title) form.append('title', title)
+    if (projectId != null) form.append('project_id', String(projectId))
     return request<ImportResult>('/import/txt', { method: 'POST', formData: form })
   },
-  importZip: (file: File, person: string, consentConfirmed: boolean, title?: string) => {
+  importZip: (file: File, person: string, consentConfirmed: boolean, title?: string, projectId?: number | null) => {
     const form = new FormData()
     form.append('file', file)
     form.append('person', person)
     form.append('consent_confirmed', String(consentConfirmed))
     if (title) form.append('title', title)
+    if (projectId != null) form.append('project_id', String(projectId))
     return request<ImportResult>('/import/zip', { method: 'POST', formData: form })
   },
 }

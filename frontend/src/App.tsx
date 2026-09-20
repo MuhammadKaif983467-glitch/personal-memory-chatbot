@@ -1,24 +1,73 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Health, Person, Project } from './types'
+import type { Person, Project } from './types'
 import { API_BASE_URL, api } from './services/api'
 import { loadPreferences, savePreferences, type Preferences } from './services/preferences'
-import { ChatPage } from './pages/ChatPage'
-import { MemoriesPage } from './pages/MemoriesPage'
-import { PeoplePage } from './pages/PeoplePage'
-import { ImportPage } from './pages/ImportPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { NewProjectModal } from './components/NewProjectModal'
+import { ToastProvider } from './hooks/useToast'
+import { ChatShell } from './components/chat'
+import { MemoryShell } from './components/memory'
+import { PersonShell } from './components/people'
+import { ImportShell } from './components/import'
+import { SettingsShell } from './components/settings'
+import { CreateProjectModal } from './components/projects'
+import { EditProjectModal } from './components/projects'
 
 type Tab = 'chat' | 'memories' | 'people' | 'import' | 'settings'
-
 type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DEGRADED' | 'OFFLINE'
 
-const TAB_ITEMS: { key: Tab; icon: string; label: string }[] = [
-  { key: 'chat', icon: "\u{1F4AC}", label: 'Chat' },
-  { key: 'memories', icon: "\u{1F9E0}", label: 'Memories' },
-  { key: 'people', icon: "\u{1F465}", label: 'People' },
-  { key: 'import', icon: "\u{1F4E5}", label: 'Import' },
-  { key: 'settings', icon: "\u2699\uFE0F", label: 'Settings' },
+const TAB_ITEMS: { key: Tab; label: string; icon: JSX.Element }[] = [
+  {
+    key: 'chat',
+    label: 'Chat',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+  },
+  {
+    key: 'memories',
+    label: 'Memories',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 16v-4" />
+        <path d="M12 8h.01" />
+      </svg>
+    ),
+  },
+  {
+    key: 'people',
+    label: 'People',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+  },
+  {
+    key: 'import',
+    label: 'Import',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+    ),
+  },
+  {
+    key: 'settings',
+    label: 'Settings',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+  },
 ]
 
 const CONNECTED_POLL_MS = 30_000
@@ -26,14 +75,14 @@ const RETRY_POLL_MS = 5_000
 const INITIAL_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 16_000
 
-export default function App() {
+function AppShell() {
   const [tab, setTab] = useState<Tab>('chat')
   const [persons, setPersons] = useState<Person[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [showCreateProject, setShowCreateProject] = useState(false)
+  const [showEditProject, setShowEditProject] = useState(false)
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null)
-  const [health, setHealth] = useState<Health | null>(null)
   const [preferences, setPreferences] = useState<Preferences>(() => loadPreferences())
   const [error, setError] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('CONNECTING')
@@ -44,13 +93,26 @@ export default function App() {
     try {
       setError(null)
       setConnectionStatus((prev) => (prev === 'CONNECTED' ? prev : 'CONNECTING'))
-      const [nextPersons, nextHealth, nextProjects] = await Promise.all([
+      const [peopleResult, healthResult, projectsResult] = await Promise.allSettled([
         api.listPeople(),
         api.health(),
         api.listProjects(),
       ])
+
+      if (healthResult.status === 'rejected') {
+        setConnectionStatus('OFFLINE')
+        setError(
+          healthResult.reason instanceof Error
+            ? `${healthResult.reason.message} -- is the backend running at ${API_BASE_URL}?`
+            : 'Could not reach the backend API.',
+        )
+        return
+      }
+
+      const nextPersons = peopleResult.status === 'fulfilled' ? peopleResult.value : []
+      const nextProjects = projectsResult.status === 'fulfilled' ? projectsResult.value : []
+
       setPersons(nextPersons)
-      setHealth(nextHealth)
       setProjects(nextProjects)
       setConnectionStatus('CONNECTED')
       backoffRef.current = INITIAL_BACKOFF_MS
@@ -64,7 +126,7 @@ export default function App() {
       setConnectionStatus('OFFLINE')
       setError(
         err instanceof Error
-          ? `${err.message} \u2014 is the backend running at ${API_BASE_URL}?`
+          ? `${err.message} -- is the backend running at ${API_BASE_URL}?`
           : 'Could not reach the backend API.',
       )
     }
@@ -79,9 +141,8 @@ export default function App() {
       timer = setTimeout(async () => {
         if (!active) return
         try {
-          const result = await api.health()
+          await api.health()
           if (!active) return
-          setHealth(result)
           setConnectionStatus('CONNECTED')
           backoffRef.current = INITIAL_BACKOFF_MS
           scheduleNext(CONNECTED_POLL_MS)
@@ -127,64 +188,59 @@ export default function App() {
     void refresh()
   }, [refresh])
 
-  const statusColor =
+  const handleProjectChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextId = e.target.value ? Number(e.target.value) : null
+      setSelectedProjectId(nextId)
+      const scoped =
+        nextId == null
+          ? persons
+          : persons.filter((person) => person.project_id === nextId)
+      setSelectedPersonId(scoped[0]?.id ?? null)
+    },
+    [persons],
+  )
+
+  const statusDotClass =
     connectionStatus === 'CONNECTED'
-      ? '#22c55e'
+      ? 'status-dot'
       : connectionStatus === 'CONNECTING' || connectionStatus === 'DEGRADED'
-        ? '#eab308'
-        : '#ef4444'
+        ? 'status-dot connecting'
+        : 'status-dot offline'
 
   const statusLabel =
     connectionStatus === 'CONNECTED'
       ? 'Connected'
       : connectionStatus === 'CONNECTING'
-        ? 'Connecting\u2026'
+        ? 'Connecting...'
         : connectionStatus === 'DEGRADED'
           ? 'Degraded'
           : 'Offline'
 
   return (
-    <div className="app" style={S.app}>
-      <aside className="sidebar" style={S.sidebar}>
-        <div style={S.brand}>
-          <div style={S.brandTitle}>
-            <span style={S.brandGradient}>Memory</span>
-          </div>
-          <div style={S.brandSubtitle}>AI Memory Platform</div>
+    <div className="app app-layout">
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <h1>Memory</h1>
         </div>
 
-        <nav style={S.nav}>
-          {TAB_ITEMS.map((item) => {
-            const active = tab === item.key
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setTab(item.key)}
-                style={{ ...S.navItem, ...(active ? S.navItemActive : undefined) }}
-              >
-                <span style={S.navIcon}>{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
-            )
-          })}
+        <nav className="sidebar-nav">
+          {TAB_ITEMS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`sidebar-nav-item${tab === item.key ? ' active' : ''}`}
+              onClick={() => setTab(item.key)}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
         </nav>
 
-        <div style={S.projectSection}>
-          <div style={S.projectRow}>
-            <select
-              value={selectedProjectId ?? ''}
-              onChange={(e) => {
-                const nextId = e.target.value ? Number(e.target.value) : null
-                setSelectedProjectId(nextId)
-                const scoped =
-                  nextId == null
-                    ? persons
-                    : persons.filter((person) => person.project_id === nextId)
-                setSelectedPersonId(scoped[0]?.id ?? null)
-              }}
-              style={S.projectSelect}
-            >
+        <div className="sidebar-project-select">
+          <div className="row" style={{ gap: 6 }}>
+            <select className="input" style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }} value={selectedProjectId ?? ''} onChange={handleProjectChange}>
               <option value="">All projects</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
@@ -192,83 +248,77 @@ export default function App() {
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={() => setShowCreateProject(true)}
-              style={S.newProjectBtn}
-              title="Create new project"
-            >
+            <button type="button" className="icon-btn" onClick={() => setShowCreateProject(true)} title="New project" style={{ width: 32, height: 32 }}>
               +
             </button>
           </div>
           {selectedProject && (
-            <div style={S.projectStats}>
-              {selectedProject.stats.persons ?? 0} people {'\u00B7'}{' '}
-              {selectedProject.stats.conversations ?? 0} conversations {'\u00B7'}{' '}
-              {selectedProject.stats.memories ?? 0} memories
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>
+                  {selectedProject.stats.persons ?? 0} people
+                  {' '}&middot;{' '}
+                  {selectedProject.stats.conversations ?? 0} conversations
+                  {' '}&middot;{' '}
+                  {selectedProject.stats.memories ?? 0} memories
+                </span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setShowEditProject(true)}
+                  title="Edit project"
+                  style={{ width: 24, height: 24, fontSize: '0.7rem' }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        <div style={S.spacer} />
-
-        <div style={S.statusBar}>
-          <div style={S.statusRow}>
-            <span
-              style={{
-                ...S.statusDot,
-                backgroundColor: statusColor,
-                animation:
-                  connectionStatus === 'CONNECTING'
-                    ? 'pulse 1.5s ease-in-out infinite'
-                    : undefined,
-              }}
-            />
-            <span style={S.statusLabel}>{statusLabel}</span>
+        <div className="sidebar-status-bar">
+          <div className="row" style={{ gap: 8, flex: 1 }}>
+            <span className={statusDotClass} />
+            <span>{statusLabel}</span>
           </div>
-          <div style={S.backendUrl}>{API_BASE_URL}</div>
           {connectionStatus === 'OFFLINE' && (
-            <button type="button" onClick={handleRetry} style={S.retryBtn}>
+            <button type="button" className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: '0.7rem' }} onClick={handleRetry}>
               Retry
             </button>
-          )}
-          {health && (
-            <div style={S.providerInfo}>
-              {health.provider} v{health.version}
-            </div>
           )}
         </div>
       </aside>
 
-      <main className="content" style={S.content}>
+      <main className="main-content">
         {error && (
-          <div style={S.errorBanner}>
+          <div className="error" onClick={() => setError(null)}>
             <span>{error}</span>
-            <button type="button" onClick={() => setError(null)} style={S.errorDismiss}>
-              {'\u2715'}
-            </button>
           </div>
         )}
 
-        <div style={S.contentScroll}>
+        <div className="content-panel">
           {tab === 'chat' && (
-            <ChatPage
+            <ChatShell
               persons={projectPersons}
               selectedPersonId={selectedPersonId}
               onSelectPerson={setSelectedPersonId}
+              selectedProjectId={selectedProjectId}
               showMemorySources={preferences.showMemorySources}
               debugRetrieval={preferences.debugRetrieval}
             />
           )}
           {tab === 'memories' && (
-            <MemoriesPage
+            <MemoryShell
               persons={projectPersons}
               selectedPersonId={selectedPersonId}
               onSelectPerson={setSelectedPersonId}
             />
           )}
           {tab === 'people' && (
-            <PeoplePage
+            <PersonShell
               persons={projectPersons}
               selectedPersonId={selectedPersonId}
               onSelectPerson={setSelectedPersonId}
@@ -276,7 +326,8 @@ export default function App() {
             />
           )}
           {tab === 'import' && (
-            <ImportPage
+            <ImportShell
+              projectId={selectedProjectId}
               onImported={(personId) => {
                 void refresh()
                 if (personId != null) setSelectedPersonId(personId)
@@ -284,233 +335,46 @@ export default function App() {
             />
           )}
           {tab === 'settings' && (
-            <SettingsPage preferences={preferences} onPreferences={updatePreferences} />
+            <SettingsShell preferences={preferences} onPreferences={updatePreferences} />
           )}
         </div>
       </main>
 
       {showCreateProject && (
-        <NewProjectModal
-          onCreated={(projectId) => {
-            setShowCreateProject(false)
-            void refresh().then(() => setSelectedProjectId(projectId))
-          }}
+        <CreateProjectModal
+          open={showCreateProject}
           onClose={() => setShowCreateProject(false)}
+          onCreated={() => {
+            setShowCreateProject(false)
+            void refresh()
+          }}
         />
       )}
 
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(1.4); }
-        }
-        .app select:focus,
-        .app input:focus,
-        .app button:focus-visible {
-          outline: 2px solid #6366f1;
-          outline-offset: 1px;
-        }
-        .app ::-webkit-scrollbar { width: 6px; }
-        .app ::-webkit-scrollbar-track { background: transparent; }
-        .app ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-        .app ::-webkit-scrollbar-thumb:hover { background: #475569; }
-      `}</style>
+      {showEditProject && selectedProject && (
+        <EditProjectModal
+          open={showEditProject}
+          project={selectedProject}
+          onClose={() => setShowEditProject(false)}
+          onSaved={() => {
+            setShowEditProject(false)
+            void refresh()
+          }}
+          onDeleted={() => {
+            setShowEditProject(false)
+            setSelectedProjectId(null)
+            void refresh()
+          }}
+        />
+      )}
     </div>
   )
 }
 
-const S: Record<string, React.CSSProperties> = {
-  app: {
-    display: 'flex',
-    height: '100vh',
-    width: '100vw',
-    overflow: 'hidden',
-    background: '#0f172a',
-    color: '#e2e8f0',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  },
-  sidebar: {
-    display: 'flex',
-    flexDirection: 'column',
-    width: 260,
-    minWidth: 260,
-    height: '100vh',
-    background: '#1e293b',
-    borderRight: '1px solid #334155',
-    padding: '20px 16px 16px',
-    boxSizing: 'border-box',
-    overflowY: 'auto',
-  },
-  brand: {
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  brandTitle: {
-    fontSize: 28,
-    fontWeight: 800,
-    lineHeight: 1.1,
-    letterSpacing: '-0.02em',
-  },
-  brandGradient: {
-    background: 'linear-gradient(135deg, #818cf8, #c084fc, #f472b6)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
-  },
-  brandSubtitle: {
-    fontSize: 11,
-    color: '#94a3b8',
-    letterSpacing: '0.06em',
-    textTransform: 'uppercase' as const,
-    marginTop: 4,
-  },
-  nav: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-    marginBottom: 20,
-  },
-  navItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '10px 14px',
-    borderRadius: 8,
-    border: 'none',
-    background: 'transparent',
-    color: '#94a3b8',
-    fontSize: 14,
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    textAlign: 'left' as const,
-    width: '100%',
-  },
-  navItemActive: {
-    background: 'rgba(99, 102, 241, 0.15)',
-    color: '#a5b4fc',
-  },
-  navIcon: {
-    fontSize: 16,
-    width: 22,
-    textAlign: 'center' as const,
-  },
-  projectSection: {
-    marginBottom: 16,
-  },
-  projectRow: {
-    display: 'flex',
-    gap: 6,
-    alignItems: 'center',
-  },
-  projectSelect: {
-    flex: 1,
-    padding: '8px 10px',
-    borderRadius: 6,
-    border: '1px solid #334155',
-    background: '#0f172a',
-    color: '#e2e8f0',
-    fontSize: 13,
-    cursor: 'pointer',
-  },
-  newProjectBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 6,
-    border: '1px solid #334155',
-    background: '#0f172a',
-    color: '#a5b4fc',
-    fontSize: 16,
-    fontWeight: 700,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  projectStats: {
-    fontSize: 12,
-    color: '#64748b',
-    marginTop: 8,
-    lineHeight: 1.5,
-  },
-  spacer: {
-    flex: 1,
-  },
-  statusBar: {
-    borderTop: '1px solid #334155',
-    paddingTop: 12,
-  },
-  statusRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    flexShrink: 0,
-  },
-  statusLabel: {
-    fontSize: 13,
-    fontWeight: 500,
-    color: '#cbd5e1',
-  },
-  backendUrl: {
-    fontSize: 11,
-    color: '#475569',
-    fontFamily: 'monospace',
-    marginTop: 2,
-  },
-  retryBtn: {
-    marginTop: 8,
-    padding: '5px 14px',
-    borderRadius: 6,
-    border: '1px solid #ef4444',
-    background: 'transparent',
-    color: '#ef4444',
-    fontSize: 12,
-    fontWeight: 500,
-    cursor: 'pointer',
-    width: '100%',
-  },
-  providerInfo: {
-    fontSize: 11,
-    color: '#475569',
-    marginTop: 8,
-  },
-  content: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-    minWidth: 0,
-  },
-  contentScroll: {
-    flex: 1,
-    overflow: 'auto',
-    minHeight: 0,
-  },
-  errorBanner: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '10px 16px',
-    background: '#451a1a',
-    borderBottom: '1px solid #7f1d1d',
-    color: '#fca5a5',
-    fontSize: 13,
-    flexShrink: 0,
-  },
-  errorDismiss: {
-    background: 'transparent',
-    border: 'none',
-    color: '#fca5a5',
-    fontSize: 16,
-    cursor: 'pointer',
-    padding: '0 4px',
-    lineHeight: 1,
-  },
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppShell />
+    </ToastProvider>
+  )
 }

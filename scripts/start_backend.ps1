@@ -2,8 +2,8 @@
 # Starts the FastAPI backend on http://localhost:8000
 
 $ErrorActionPreference = "Stop"
-$BackendDir = Join-Path $PSScriptRoot ".." "backend"
-$VenvPython = Join-Path $BackendDir ".venv" "Scripts" "python.exe"
+$BackendDir = Join-Path (Join-Path $PSScriptRoot "..") "backend"
+$VenvPython = Join-Path (Join-Path (Join-Path $BackendDir ".venv") "Scripts") "python.exe"
 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host " Personal Memory Chatbot - Backend" -ForegroundColor Cyan
@@ -17,7 +17,7 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 # Check database exists
-$DbPath = Join-Path $PSScriptRoot ".." "data" "chatbot.db"
+$DbPath = Join-Path (Join-Path (Join-Path $PSScriptRoot "..") "data") "chatbot.db"
 if (-not (Test-Path $DbPath)) {
     Write-Host "[WARN] Database not found at $DbPath - will be created on first start" -ForegroundColor Yellow
 }

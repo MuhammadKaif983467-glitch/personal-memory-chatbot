@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AppContext, get_context, get_db
 from app.core.exceptions import NotFoundError
-from app.database.repositories import ConversationRepository, MessageRepository
+from app.database.repositories import ConversationRepository, MessageRepository, ConversationParticipantRepository
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.message import (
     ConversationDeleteResult,
     ConversationOut,
+    ConversationParticipantOut,
     MessageOut,
+    PaginatedMessages,
     to_conversation_out,
     to_message_out,
 )
@@ -31,11 +33,14 @@ def chat(request: ChatRequest, db: Session = Depends(get_db), context: AppContex
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
-def list_conversations(db: Session = Depends(get_db)):
+def list_conversations(
+    project_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
     conversation_repo = ConversationRepository(db)
     return [
         to_conversation_out(conversation, conversation_repo.message_count(conversation.id))
-        for conversation in conversation_repo.list_all()
+        for conversation in conversation_repo.list_all(project_id=project_id)
     ]
 
 
@@ -47,7 +52,7 @@ def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
     return to_conversation_out(conversation, ConversationRepository(db).message_count(conversation_id))
 
 
-@router.get("/messages", response_model=list[MessageOut])
+@router.get("/messages", response_model=PaginatedMessages)
 def list_messages(
     person_id: Optional[int] = None,
     conversation_id: Optional[int] = None,
@@ -55,10 +60,17 @@ def list_messages(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    rows = MessageRepository(db).list_all(
+    msg_repo = MessageRepository(db)
+    total = msg_repo.count(person_id=person_id, conversation_id=conversation_id)
+    rows = msg_repo.list_all(
         person_id=person_id, conversation_id=conversation_id, limit=limit, offset=offset
     )
-    return [to_message_out(m) for m in rows]
+    return PaginatedMessages(
+        items=[to_message_out(m) for m in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/messages/{message_id}", response_model=MessageOut)
@@ -82,6 +94,8 @@ def delete_conversation(
     sourced from this conversation are retired and de-embedded unless another
     memory depends on them or they are already retired.
     """
+    from app.database.repositories import ConversationParticipantRepository
+
     conversation_repo = ConversationRepository(db)
     conversation = conversation_repo.get(conversation_id)
     if conversation is None:
@@ -90,6 +104,9 @@ def delete_conversation(
     memories_deleted, memories_preserved = MemoryService(db).delete_conversation_memories(
         conversation_id, context.embeddings
     )
+
+    # Delete conversation participants first (FK dependency).
+    ConversationParticipantRepository(db).delete_for_conversation(conversation_id)
 
     messages = MessageRepository(db).list_by_conversation(conversation_id)
     for message in messages:
@@ -103,6 +120,17 @@ def delete_conversation(
         memories_deleted=memories_deleted,
         memories_preserved=memories_preserved,
     )
+
+
+@router.get("/conversations/{conversation_id}/participants")
+def list_participants(conversation_id: int, db: Session = Depends(get_db)):
+    """List participants for a conversation."""
+    from app.schemas.message import ConversationParticipantOut
+    conv = ConversationRepository(db).get(conversation_id)
+    if conv is None:
+        raise NotFoundError("Conversation not found.")
+    participants = ConversationParticipantRepository(db).list_for_conversation(conversation_id)
+    return [ConversationParticipantOut.model_validate(p) for p in participants]
 
 
 @router.delete("/messages/{message_id}", status_code=204)

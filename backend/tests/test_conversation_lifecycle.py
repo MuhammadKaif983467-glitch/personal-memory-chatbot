@@ -9,7 +9,7 @@ from __future__ import annotations
 
 
 def _message_ids(client, conversation_id: int) -> list[int]:
-    rows = client.get("/messages", params={"conversation_id": conversation_id, "limit": 1000}).json()
+    rows = client.get("/messages", params={"conversation_id": conversation_id, "limit": 1000}).json()["items"]
     return [m["id"] for m in rows]
 
 
@@ -23,7 +23,7 @@ def _memories_sourced_here(client, person_id: int, message_ids: list[int]) -> li
 def test_get_single_message(client, imported_alias):
     rows = client.get(
         "/messages", params={"conversation_id": imported_alias["conversation_id"]}
-    ).json()
+    ).json()["items"]
     assert rows
     single = client.get(f"/messages/{rows[0]['id']}")
     assert single.status_code == 200

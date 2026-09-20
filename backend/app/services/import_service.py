@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import ImportValidationError
 from app.core.logging import get_logger
 from app.core.security import require_consent
-from app.database.models import Message
+from app.database.models import Message, Person
 from app.database.repositories import ConversationRepository, MessageRepository, PersonRepository
 from app.schemas.import_export import ImportPayload, ImportResult, ImportedMessage
 from app.services.cleaning_service import clean_imported_messages
@@ -49,6 +49,7 @@ class ImportService:
         title: str,
         source: str,
         consent_confirmed: bool,
+        project_id: int | None = None,
     ) -> ImportResult:
         reader = csv.DictReader(io.StringIO(text))
         if reader.fieldnames is None:
@@ -82,6 +83,7 @@ class ImportService:
             consent_confirmed=consent_confirmed,
             conversation={"title": title or "Imported Chat", "person": person_name, "source": source or "csv"},
             messages=messages,
+            project_id=project_id,
         )
         return self.import_payload(payload)
 
@@ -93,6 +95,7 @@ class ImportService:
         title: str,
         source: str,
         consent_confirmed: bool,
+        project_id: int | None = None,
     ) -> ImportResult:
         messages: list[ImportedMessage] = []
         row_errors: list[str] = []
@@ -126,6 +129,7 @@ class ImportService:
             consent_confirmed=consent_confirmed,
             conversation={"title": title or "Imported Chat", "person": person_name, "source": source or "jsonl"},
             messages=messages,
+            project_id=project_id,
         )
         return self.import_payload(payload)
 
@@ -153,10 +157,78 @@ class ImportService:
         report_errors = list(report.errors)
 
         identity = IdentityService(self.session)
-        person = identity.find_or_create_person(payload.conversation.person, relationship="unknown")
-        conversation = ConversationRepository(self.session).create(
-            person.id, payload.conversation.title or "Imported Chat", payload.conversation.source
+        person = identity.find_or_create_person(payload.conversation.person, relationship="unknown", project_id=payload.project_id)
+
+        # Compute fingerprint for dedup detection.
+        from app.utils.fingerprint import compute_conversation_fingerprint
+        senders_for_fp = {row.sender.strip() for row in cleaned if row.sender.strip()}
+        timestamps_for_fp = [row.timestamp for row in cleaned if row.timestamp is not None]
+        first_sample = cleaned[0].content if cleaned else ""
+        last_sample = cleaned[-1].content if cleaned else ""
+        fingerprint = compute_conversation_fingerprint(
+            project_id=payload.project_id,
+            source=payload.conversation.source or "",
+            participant_names=list(senders_for_fp),
+            started_at=str(min(timestamps_for_fp)) if timestamps_for_fp else None,
+            ended_at=str(max(timestamps_for_fp)) if timestamps_for_fp else None,
+            message_count=len(cleaned),
+            first_message_sample=first_sample,
+            last_message_sample=last_sample,
         )
+
+        conv_repo = ConversationRepository(self.session)
+        existing = conv_repo.find_duplicate(
+            payload.project_id,
+            payload.conversation.title or "Imported Chat",
+            payload.conversation.source,
+            fingerprint=fingerprint,
+        )
+        if existing is not None:
+            conversation = existing
+            if not conversation.fingerprint:
+                conversation.fingerprint = fingerprint
+                self.session.flush()
+            existing_msgs = MessageRepository(self.session).list_by_conversation(conversation.id)
+            existing_keys = {(m.sender.strip().lower(), m.content.strip()) for m in existing_msgs}
+            original_count = len(cleaned)
+            cleaned = [
+                row for row in cleaned
+                if (row.sender.strip().lower(), row.content.strip()) not in existing_keys
+            ]
+            report.removed_duplicates += original_count - len(cleaned)
+        else:
+            conversation = conv_repo.create(
+                person.id, payload.conversation.title or "Imported Chat", payload.conversation.source, project_id=payload.project_id
+            )
+            conversation.fingerprint = fingerprint
+            self.session.flush()
+
+        # Create ConversationParticipant records for all detected senders.
+        from app.database.repositories import ConversationParticipantRepository
+        cp_repo = ConversationParticipantRepository(self.session)
+        if not cp_repo.has_participants(conversation.id):
+            senders_in_messages = {row.sender.strip() for row in cleaned if row.sender.strip()}
+            for sender_name in senders_in_messages:
+                sender_person = identity.find_or_create_person(
+                    sender_name, relationship="unknown", project_id=payload.project_id
+                )
+                role = "ME" if sender_person.id == person.id else "OTHER"
+                cp_repo.add(
+                    conversation.id,
+                    sender_person.id,
+                    role=role,
+                    display_name_at_import=sender_name,
+                )
+
+        # Build sender-to-person mapping for correct message ownership.
+        all_cps = cp_repo.list_for_conversation(conversation.id)
+        sender_person_map = {}
+        for cp in all_cps:
+            if cp.display_name_at_import:
+                sender_person_map[cp.display_name_at_import.strip().lower()] = cp.person_id
+            p = self.session.get(Person, cp.person_id)
+            if p and p.name:
+                sender_person_map[p.name.strip().lower()] = cp.person_id
 
         timestamps = [row.timestamp for row in cleaned if row.timestamp is not None]
         if timestamps:
@@ -167,12 +239,13 @@ class ImportService:
         rows = [
             Message(
                 conversation_id=conversation.id,
-                person_id=person.id,
+                person_id=sender_person_map.get(row.sender.strip().lower(), person.id),
                 sender=row.sender,
                 content=row.content,
                 original_content=row.original_content,
                 timestamp=row.timestamp,
                 message_type=row.message_type,
+                message_origin="imported",
                 is_duplicate=row.is_duplicate,
                 is_spam=row.is_spam,
                 language=row.language,

@@ -18,6 +18,7 @@ import time
 from typing import Optional, Sequence
 
 from app.ai.base import AIProvider
+from app.ai.circuit_breaker import CircuitBreaker
 from app.ai.errors import (
     REASON_INVALID_MODEL,
     REASON_MISSING_KEY,
@@ -62,6 +63,7 @@ class OpenRouterProvider(AIProvider):
         self._chat_client = None
         self._embed_client = None
         self._client_failed = False
+        self._circuit_breaker = CircuitBreaker(failure_threshold=5, cooldown_seconds=60.0)
 
     # ---- configuration surface (secret-free) ----
 
@@ -166,12 +168,20 @@ class OpenRouterProvider(AIProvider):
     # ---- chat ----
 
     def generate(self, system_prompt: str, messages: Sequence[dict]) -> str:
+        if not self._circuit_breaker.allow_request():
+            raise provider_error(
+                "The AI provider is temporarily unavailable due to repeated failures. "
+                "Please try again in a moment.",
+                reason="circuit_open",
+            )
         payload = [{"role": "system", "content": system_prompt}, *messages]
         models = self._chat_models
         last_error: ProviderError | None = None
         for model in models:
             try:
-                return self._chat_once(model, payload)
+                result = self._chat_once(model, payload)
+                self._circuit_breaker.record_success()
+                return result
             except ProviderError as exc:
                 if exc.reason == REASON_INVALID_MODEL and len(models) > 1:
                     logger.warning(
@@ -179,6 +189,7 @@ class OpenRouterProvider(AIProvider):
                     )
                     last_error = exc
                     continue
+                self._circuit_breaker.record_failure()
                 raise
         raise last_error or provider_error(
             "The AI provider could not generate a response. Please try again later."
@@ -219,11 +230,18 @@ class OpenRouterProvider(AIProvider):
     def embed(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
         if not texts:
             return []
+        if not self._circuit_breaker.allow_request():
+            raise provider_error(
+                "The AI embedding provider is temporarily unavailable due to repeated failures. "
+                "Please try again in a moment.",
+                reason="circuit_open",
+            )
         models = self._embedding_models
         last_error: ProviderError | None = None
         for model in models:
             try:
                 vectors = self._embed_once(model, texts)
+                self._circuit_breaker.record_success()
             except ProviderError as exc:
                 if exc.reason in (REASON_INVALID_MODEL,) and len(models) > 1:
                     logger.warning(
@@ -231,6 +249,7 @@ class OpenRouterProvider(AIProvider):
                     )
                     last_error = exc
                     continue
+                self._circuit_breaker.record_failure()
                 raise
             self._active_embedding_model = model
             return vectors
@@ -300,3 +319,7 @@ class OpenRouterProvider(AIProvider):
         else:
             wait = _SLEEP_BASE * (2 ** attempt)
         return min(max(wait, 1.0), 120.0)
+
+    @property
+    def circuit_breaker_state(self) -> dict:
+        return self._circuit_breaker.snapshot()

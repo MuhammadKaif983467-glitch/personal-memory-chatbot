@@ -46,13 +46,13 @@ class IdentityService:
             return exact
         return self.people.get_by_normalized_name(name.casefold())
 
-    def find_or_create_person(self, raw_name: str, relationship: str = "unknown") -> Person:
+    def find_or_create_person(self, raw_name: str, relationship: str = "unknown", project_id: int | None = None) -> Person:
         """Identify the person or create a fresh record (import path only)."""
         existing = self.find_person(raw_name)
         if existing:
             return existing
         name = normalize_sender(raw_name) or (raw_name or "").strip() or "Unknown"
-        return self.people.create(name, relationship)
+        return self.people.create(name, relationship, project_id=project_id)
 
     def merge_people(self, from_person_id: int, to_person_id: int) -> MergeResult:
         if from_person_id == to_person_id:

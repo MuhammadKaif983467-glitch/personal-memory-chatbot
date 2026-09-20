@@ -605,13 +605,12 @@ class MemoryService:
         if not content:
             raise ImportValidationError("Edited content is empty.")
         memory.content = content
-        self.session.commit()
-        # Append a new ACTIVE version so the previous wording is preserved.
+        prev_rev = MemoryVersionRepository(self.session).latest_revision(memory.id)
         MemoryVersionRepository(self.session).append(
             memory,
             status="ACTIVE",
             actor="edit",
-            note=f"memory edited (was revision {MemoryVersionRepository(self.session).latest_revision(memory.id) - 1})",
+            note=f"memory edited (was revision {prev_rev - 1})",
         )
         self.session.commit()
         # Replace the old vector in place.

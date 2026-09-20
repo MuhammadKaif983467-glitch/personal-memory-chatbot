@@ -72,3 +72,15 @@ class ProjectDeleteResult(BaseModel):
     deleted_memories: int = 0
     deleted_vectors: int = 0
     deleted_embeddings: int = 0
+
+
+class ProjectUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200, description="New project name")
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, value: str) -> str:
+        name = str(value).strip()
+        if not name:
+            raise ImportValidationError("Project name cannot be empty or whitespace-only.")
+        return name

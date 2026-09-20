@@ -70,6 +70,37 @@ def test_get_project_not_found(client):
     assert client.delete("/projects/99999").status_code == 404
 
 
+def test_update_project_name(client):
+    created = client.post("/projects", json={"name": "Old Name"}).json()
+    pid = created["id"]
+    assert created["name"] == "Old Name"
+
+    resp = client.patch(f"/projects/{pid}", json={"name": "New Name"})
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["name"] == "New Name"
+    assert updated["id"] == pid
+
+    fetched = client.get(f"/projects/{pid}").json()
+    assert fetched["name"] == "New Name"
+
+
+def test_update_project_name_validation(client):
+    created = client.post("/projects", json={"name": "Valid"}).json()
+    pid = created["id"]
+
+    resp = client.patch(f"/projects/{pid}", json={"name": ""})
+    assert resp.status_code == 422
+
+    resp = client.patch(f"/projects/{pid}", json={"name": "   "})
+    assert resp.status_code == 422
+
+
+def test_update_project_not_found(client):
+    resp = client.patch("/projects/99999", json={"name": "X"})
+    assert resp.status_code == 404
+
+
 def test_project_isolation_between_two_projects(app, db):
     client = TestClient(app)
     default_id = ProjectRepository(db).find_default().id

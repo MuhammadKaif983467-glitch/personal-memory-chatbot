@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.database.models import Conversation, Message
 from app.database.repositories import (
     ConversationRepository,
+    MemoryRepository,
     MessageRepository,
     PersonRepository,
 )

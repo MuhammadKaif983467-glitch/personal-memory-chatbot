@@ -13,8 +13,10 @@ class ConversationOut(BaseModel):
 
     id: int
     person_id: int
+    project_id: Optional[int] = None
     title: str
     source: str
+    fingerprint: Optional[str] = None
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     message_count: int = 0
@@ -31,6 +33,7 @@ class MessageOut(BaseModel):
     original_content: str
     timestamp: Optional[datetime] = None
     message_type: str
+    message_origin: str = "imported"
     is_duplicate: bool
     is_spam: bool
     language: str
@@ -56,8 +59,10 @@ def to_conversation_out(conversation, message_count: int) -> ConversationOut:
     return ConversationOut(
         id=conversation.id,
         person_id=conversation.person_id,
+        project_id=getattr(conversation, 'project_id', None),
         title=conversation.title,
         source=conversation.source,
+        fingerprint=getattr(conversation, 'fingerprint', None),
         started_at=conversation.started_at,
         ended_at=conversation.ended_at,
         message_count=message_count,
@@ -74,8 +79,26 @@ def to_message_out(message) -> MessageOut:
         original_content=message.original_content,
         timestamp=message.timestamp,
         message_type=message.message_type,
+        message_origin=getattr(message, "message_origin", "imported"),
         is_duplicate=message.is_duplicate,
         is_spam=message.is_spam,
         language=message.language,
         metadata=message.msg_metadata or {},
     )
+
+
+class ConversationParticipantOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    conversation_id: int
+    person_id: int
+    role: str
+    display_name_at_import: str
+
+
+class PaginatedMessages(BaseModel):
+    items: list[MessageOut]
+    total: int
+    limit: int
+    offset: int

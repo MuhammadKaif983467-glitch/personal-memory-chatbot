@@ -25,8 +25,8 @@ class ExportService:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def conversations(self) -> dict:
-        conversations = ConversationRepository(self.session).list_all()
+    def conversations(self, project_id: int | None = None) -> dict:
+        conversations = ConversationRepository(self.session).list_all(project_id=project_id)
         messages_repo = MessageRepository(self.session)
         data = []
         for conversation in conversations:
@@ -58,9 +58,20 @@ class ExportService:
             )
         return _wrap("conversations", data)
 
-    def messages(self) -> dict:
-        """Flat export of every stored message (used by /export/messages)."""
+    def messages(self, project_id: int | None = None) -> dict:
+        """Flat export of stored messages, optionally scoped to a project."""
         messages_repo = MessageRepository(self.session)
+        if project_id is not None:
+            conv_ids = [c.id for c in ConversationRepository(self.session).list_all(project_id=project_id)]
+            from sqlalchemy import select
+            from app.database.models import Message
+            all_msgs = self.session.scalars(
+                select(Message)
+                .where(Message.conversation_id.in_(conv_ids))
+                .order_by(Message.timestamp.asc(), Message.id.asc())
+            ).all()
+        else:
+            all_msgs = messages_repo.all_for_export()
         rows = [
             {
                 "id": m.id,
@@ -76,15 +87,17 @@ class ExportService:
                 "language": m.language,
                 "metadata": m.msg_metadata or {},
             }
-            for m in messages_repo.all_for_export()
+            for m in all_msgs
         ]
         return _wrap("messages", rows)
 
-    def memories(self) -> dict:
+    def memories(self, project_id: int | None = None) -> dict:
         people = {p.id: p.name for p in PersonRepository(self.session).list_all()}
         memories_repo = MemoryRepository(self.session)
         rows = []
         for memory in memories_repo.list_all_include_non_active():
+            if project_id is not None and memory.project_id != project_id:
+                continue
             rows.append(
                 {
                     "id": memory.id,
@@ -103,10 +116,12 @@ class ExportService:
             )
         return _wrap("memories", rows)
 
-    def people(self) -> dict:
+    def people(self, project_id: int | None = None) -> dict:
         people_repo = PersonRepository(self.session)
         rows = []
         for person in people_repo.list_all():
+            if project_id is not None and person.project_id != project_id:
+                continue
             profile = PersonProfileRepository(self.session).get_for_person(person.id)
             style = WritingStyleRepository(self.session).get_for_person(person.id)
             rows.append(

@@ -66,12 +66,34 @@ class Conversation(Base):
     person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), index=True)
     title: Mapped[str] = mapped_column(String(300), default="Untitled")
     source: Mapped[str] = mapped_column(String(100), default="chat")
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     project: Mapped["Project"] = relationship()
     person: Mapped["Person"] = relationship(back_populates="conversations")
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation")
+    participants: Mapped[list["ConversationParticipant"]] = relationship(back_populates="conversation")
+
+
+class ConversationParticipant(Base):
+    """Authoritative participant model for two-person conversations.
+
+    Replaces the implicit ``conversation.person_id`` as the primary way to
+    discover who is in a conversation. Legacy conversations are backfilled by
+    the migration so that existing data keeps working.
+    """
+
+    __tablename__ = "conversation_participants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="OTHER")  # ME | OTHER
+    display_name_at_import: Mapped[str] = mapped_column(String(200), default="")
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="participants")
+    person: Mapped["Person"] = relationship()
 
 
 class Message(Base):
@@ -85,6 +107,7 @@ class Message(Base):
     original_content: Mapped[str] = mapped_column(Text, default="")  # raw imported content
     timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     message_type: Mapped[str] = mapped_column(String(50), default="text")
+    message_origin: Mapped[str] = mapped_column(String(30), default="imported")  # imported | live_user | generated
     is_duplicate: Mapped[bool] = mapped_column(Boolean, default=False)
     is_spam: Mapped[bool] = mapped_column(Boolean, default=False)
     language: Mapped[str] = mapped_column(String(30), default="unknown")

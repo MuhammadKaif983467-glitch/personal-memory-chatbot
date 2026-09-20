@@ -124,11 +124,25 @@ type ImportPreview = {
   warnings: string[]
   consent_required: boolean
   messages_previewed: number
+  participants?: string[]
+  platform?: string
+  confidence?: number
+}
+
+type PaginatedMessages = {
+  items: MessageRecord[]
+  total: number
+  limit: number
+  offset: number
 }
 
 type ProjectCreatePayload = {
   name: string
   participants: ProjectParticipant[]
+}
+
+type ProjectUpdatePayload = {
+  name: string
 }
 
 type Memory = {
@@ -165,6 +179,7 @@ type MemorySource = {
 type Conversation = {
   id: number
   person_id: number
+  project_id?: number | null
   title: string
   source: string
   started_at?: string | null
@@ -302,6 +317,7 @@ type ChatTurn = {
   learned?: LearnedMemory[]
   debug?: ChatDebug | null
   memoryIndicator?: string | null
+  speakerName?: string
 }
 
 export type {
@@ -310,6 +326,7 @@ export type {
   Project,
   ProjectDetail,
   ProjectCreatePayload,
+  ProjectUpdatePayload,
   Fact,
   Topic,
   PersonProfile,
@@ -334,4 +351,5 @@ export type {
   VoiceStatus,
   ImportPreviewItem,
   ImportPreview,
+  PaginatedMessages,
 }

@@ -9,11 +9,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.database.models import (
     Conversation,
+    ConversationParticipant,
     EmbeddingRecord,
     Memory,
     MemoryVersion,
@@ -204,6 +205,48 @@ class ConversationRepository:
             select(Conversation).where(Conversation.source == source).order_by(Conversation.id.asc())
         )
 
+    def find_duplicate(
+        self, project_id: Optional[int], title: str, source: str, fingerprint: Optional[str] = None
+    ) -> Optional[Conversation]:
+        """Find an existing conversation that matches project + title + source.
+
+        Used for deduplication: importing the same file twice should not create
+        a second conversation.  For generic imports where no external ID exists,
+        we match on normalised title + source within the same project.
+
+        If a fingerprint is provided and there's an existing conversation with
+        that fingerprint in the same project, that's a strong match (same
+        conversation imported under a different name).
+        """
+        # 1. Try fingerprint match (strongest: same conversation, different filename).
+        if fingerprint:
+            fp_query = select(Conversation).where(
+                Conversation.fingerprint == fingerprint,
+            )
+            if project_id is not None:
+                fp_query = fp_query.where(Conversation.project_id == project_id)
+            fp_match = self.session.scalar(fp_query.order_by(Conversation.id.asc()))
+            if fp_match is not None:
+                return fp_match
+
+        # 2. Fall back to title + source match ONLY if the new import has no
+        #    fingerprint (legacy import path) to avoid false-positive merges
+        #    when two genuinely different conversations share a title.
+        if not fingerprint:
+            normalised = title.strip().lower() if title else ""
+            query = select(Conversation).where(
+                Conversation.source == source,
+            )
+            if project_id is not None:
+                query = query.where(Conversation.project_id == project_id)
+            if normalised:
+                query = query.where(func.lower(Conversation.title) == normalised)
+            # Only match conversations that also have no fingerprint.
+            query = query.where(Conversation.fingerprint.is_(None))
+            return self.session.scalar(query.order_by(Conversation.id.asc()))
+
+        return None
+
     def message_count(self, conversation_id: int) -> int:
         return self.session.scalar(
             select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
@@ -222,6 +265,51 @@ class ConversationRepository:
         ).rowcount
         self.session.flush()
         return rows if rows else 0
+
+
+class ConversationParticipantRepository:
+    """Manages the authoritative participant records for conversations."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def list_for_conversation(self, conversation_id: int) -> Sequence[ConversationParticipant]:
+        return self.session.scalars(
+            select(ConversationParticipant)
+            .where(ConversationParticipant.conversation_id == conversation_id)
+            .order_by(ConversationParticipant.id)
+        ).all()
+
+    def add(
+        self,
+        conversation_id: int,
+        person_id: int,
+        role: str = "OTHER",
+        display_name_at_import: str = "",
+    ) -> ConversationParticipant:
+        cp = ConversationParticipant(
+            conversation_id=conversation_id,
+            person_id=person_id,
+            role=role,
+            display_name_at_import=display_name_at_import,
+        )
+        self.session.add(cp)
+        self.session.flush()
+        return cp
+
+    def has_participants(self, conversation_id: int) -> bool:
+        return self.session.scalar(
+            select(func.count(ConversationParticipant.id))
+            .where(ConversationParticipant.conversation_id == conversation_id)
+        ) > 0
+
+    def delete_for_conversation(self, conversation_id: int) -> int:
+        """Delete all participant records for a conversation. Returns count deleted."""
+        stmt = delete(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id
+        )
+        result = self.session.execute(stmt)
+        return result.rowcount
 
 
 class MessageRepository:
@@ -278,6 +366,34 @@ class MessageRepository:
         if conversation_id is not None:
             query = query.where(Message.conversation_id == conversation_id)
         return self.session.scalars(query.order_by(Message.timestamp.desc(), Message.id.desc()).limit(limit).offset(offset)).all()
+
+    def count(
+        self,
+        *,
+        person_id: Optional[int] = None,
+        conversation_id: Optional[int] = None,
+    ) -> int:
+        stmt = select(func.count(Message.id))
+        if person_id is not None:
+            stmt = stmt.where(Message.person_id == person_id)
+        if conversation_id is not None:
+            stmt = stmt.where(Message.conversation_id == conversation_id)
+        return self.session.scalar(stmt) or 0
+
+    def search(
+        self,
+        query_text: str,
+        *,
+        conversation_id: Optional[int] = None,
+        person_id: Optional[int] = None,
+        limit: int = 50,
+    ) -> Sequence[Message]:
+        stmt = select(Message).where(Message.content.ilike(f"%{query_text}%"))
+        if conversation_id is not None:
+            stmt = stmt.where(Message.conversation_id == conversation_id)
+        if person_id is not None:
+            stmt = stmt.where(Message.person_id == person_id)
+        return self.session.scalars(stmt.order_by(Message.timestamp.desc()).limit(limit)).all()
 
     def all_for_person(self, person_id: int) -> Sequence[Message]:
         return self.session.scalars(

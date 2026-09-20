@@ -43,6 +43,7 @@ class ImportPayload(BaseModel):
     consent_confirmed: bool
     conversation: ImportedConversationInfo
     messages: Sequence[ImportedMessage]
+    project_id: Optional[int] = None
 
 
 class ImportResult(BaseModel):
@@ -61,6 +62,7 @@ class ImportResult(BaseModel):
     cleaned: int = 0
     messages_created: int = 0
     errors: Sequence[str] = Field(default_factory=list)
+    warnings: Sequence[str] = Field(default_factory=list)
 
 
 class ImportPreviewItem(BaseModel):

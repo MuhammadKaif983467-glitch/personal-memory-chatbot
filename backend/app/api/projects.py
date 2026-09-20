@@ -23,7 +23,7 @@ from app.database.repositories import (
 from app.schemas.memory import MemoryOut, MemoryVersionOut, to_memory_out, to_memory_version_out
 from app.schemas.message import ConversationOut, to_conversation_out
 from app.schemas.person import PersonOut, to_person_out
-from app.schemas.project import ProjectCreate, ProjectDeleteResult, ProjectDetailOut, ProjectOut
+from app.schemas.project import ProjectCreate, ProjectDeleteResult, ProjectDetailOut, ProjectOut, ProjectUpdate
 from app.services.project_service import ProjectService
 
 router = APIRouter()
@@ -98,6 +98,25 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
         created_at=base.created_at,
         stats=base.stats,
         participants=_participants(project, db),
+    )
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectOut)
+def update_project(project_id: int, request: ProjectUpdate, db: Session = Depends(get_db)):
+    project = ProjectRepository(db).get(project_id)
+    if project is None:
+        from app.core.exceptions import NotFoundError
+
+        raise NotFoundError("Project not found.")
+    project.name = request.name.strip()
+    db.commit()
+    db.refresh(project)
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_id=project.user_id,
+        created_at=project.created_at,
+        stats=ProjectRepository(db).stats(project.id),
     )
 
 

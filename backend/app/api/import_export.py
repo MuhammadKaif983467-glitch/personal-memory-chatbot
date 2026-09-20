@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+import logging
+import threading
+
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import AppContext, get_context, get_db
@@ -57,6 +60,7 @@ async def import_txt(
     person: str = Form(...),
     consent_confirmed: bool = Form(False),
     title: str = Form("Imported Chat"),
+    project_id: int | None = Form(None),
     db: Session = Depends(get_db),
     context: AppContext = Depends(get_context),
 ):
@@ -68,6 +72,7 @@ async def import_txt(
         consent_confirmed=consent_confirmed,
         conversation=ImportedConversationInfo(title=title or "Imported Chat", person=person, source="txt"),
         messages=messages,
+        project_id=project_id,
     )
     report = ImportService(db, context.settings).import_payload(payload)
     _analyze_if_enabled(context, db, report)
@@ -81,6 +86,7 @@ async def import_zip(
     person: str = Form(""),
     consent_confirmed: bool = Form(False),
     title: str = Form("Imported Chat"),
+    project_id: int | None = Form(None),
     db: Session = Depends(get_db),
     context: AppContext = Depends(get_context),
 ):
@@ -93,6 +99,7 @@ async def import_zip(
         consent_confirmed=consent_confirmed,
         conversation=ImportedConversationInfo(title=title or "Imported Chat", person=person_name, source="zip"),
         messages=messages,
+        project_id=project_id,
     )
     report = ImportService(db, context.settings).import_payload(payload)
     _analyze_if_enabled(context, db, report)
@@ -119,6 +126,7 @@ async def import_csv(
     person: str = Form(...),
     consent_confirmed: bool = Form(False),
     title: str = Form("Imported Chat"),
+    project_id: int | None = Form(None),
     db: Session = Depends(get_db),
     context: AppContext = Depends(get_context),
 ):
@@ -133,6 +141,7 @@ async def import_csv(
         title=title,
         source="csv",
         consent_confirmed=consent_confirmed,
+        project_id=project_id,
     )
     _analyze_if_enabled(context, db, report)
     context.metrics.inc("imports")
@@ -145,6 +154,7 @@ async def import_jsonl(
     person: str = Form(...),
     consent_confirmed: bool = Form(False),
     title: str = Form("Imported Chat"),
+    project_id: int | None = Form(None),
     db: Session = Depends(get_db),
     context: AppContext = Depends(get_context),
 ):
@@ -160,6 +170,7 @@ async def import_jsonl(
         title=title,
         source="jsonl",
         consent_confirmed=consent_confirmed,
+        project_id=project_id,
     )
     _analyze_if_enabled(context, db, report)
     context.metrics.inc("imports")
@@ -192,29 +203,91 @@ def import_dataset(
 
 
 def _analyze_if_enabled(context: AppContext, db: Session, report: ImportResult) -> None:
-    if context.settings.analyze_on_import and report.person_id:
+    if not context.settings.analyze_on_import or not report.person_id:
+        return
+    if not getattr(context.provider, "chat_key_configured", False):
+        return
+    person_id = report.person_id
+    embeddings = context.embeddings
+
+    def _run():
+        session = context.db.session()
         try:
-            MemoryService(db).analyze_person(report.person_id, context.embeddings)
+            MemoryService(session).analyze_person(person_id, embeddings)
+            session.commit()
         except Exception:
-            # Import itself succeeded; analysis failure is non-fatal but visible.
-            report.errors.append("Automated analysis failed - run /people/{id}/analyze manually.")
+            session.rollback()
+        finally:
+            session.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
+@router.post("/import/universal/inspect")
+async def inspect_upload(
+    file: UploadFile = File(...),
+    context: AppContext = Depends(get_context),
+):
+    """Inspect an uploaded file and detect platform/format without importing."""
+    from app.services.import_engine.orchestrator import ImportOrchestrator
+    raw = await _read_upload(file, context)
+    orch = ImportOrchestrator()
+    return orch.inspect(file.filename or "upload", raw)
+
+
+@router.post("/import/universal/preview")
+async def universal_preview(
+    file: UploadFile = File(...),
+    person: str = Form(""),
+    context: AppContext = Depends(get_context),
+):
+    """Preview an upload with platform detection and participant info."""
+    from app.services.import_engine.orchestrator import ImportOrchestrator
+    raw = await _read_upload(file, context)
+    orch = ImportOrchestrator()
+    return orch.preview_file(file.filename or "upload", raw, person)
+
+
+@router.post("/import/universal", response_model=ImportResult)
+async def universal_import(
+    file: UploadFile = File(...),
+    person: str = Form(""),
+    consent_confirmed: bool = Form(False),
+    project_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+    context: AppContext = Depends(get_context),
+):
+    """Universal import: auto-detect platform, parse, and import."""
+    from app.services.import_engine.orchestrator import ImportOrchestrator
+    raw = await _read_upload(file, context)
+    orch = ImportOrchestrator()
+    payload = orch.import_file(
+        file.filename or "upload", raw,
+        person=person, consent_confirmed=consent_confirmed,
+        project_id=project_id,
+    )
+    report = ImportService(db, context.settings).import_payload(payload)
+    _analyze_if_enabled(context, db, report)
+    context.metrics.inc("imports")
+    return report
 
 
 @router.get("/export/conversations")
-def export_conversations(db: Session = Depends(get_db)):
-    return ExportService(db).conversations()
+def export_conversations(project_id: int | None = Query(None), db: Session = Depends(get_db)):
+    return ExportService(db).conversations(project_id=project_id)
 
 
 @router.get("/export/messages")
-def export_messages(db: Session = Depends(get_db)):
-    return ExportService(db).messages()
+def export_messages(project_id: int | None = Query(None), db: Session = Depends(get_db)):
+    return ExportService(db).messages(project_id=project_id)
 
 
 @router.get("/export/memories")
-def export_memories(db: Session = Depends(get_db)):
-    return ExportService(db).memories()
+def export_memories(project_id: int | None = Query(None), db: Session = Depends(get_db)):
+    return ExportService(db).memories(project_id=project_id)
 
 
 @router.get("/export/people")
-def export_people(db: Session = Depends(get_db)):
-    return ExportService(db).people()
+def export_people(project_id: int | None = Query(None), db: Session = Depends(get_db)):
+    return ExportService(db).people(project_id=project_id)

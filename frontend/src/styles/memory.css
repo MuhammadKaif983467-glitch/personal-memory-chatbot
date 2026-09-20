@@ -1,0 +1,31 @@
+.memory-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 8px;
+  transition: border-color var(--transition-normal);
+}
+
+.memory-card:hover {
+  border-color: var(--border-default);
+}
+
+.memory-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.memory-content {
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

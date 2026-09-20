@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
 from app.api.deps import AppContext, get_context, get_db
 from app.services.analytics_service import AnalyticsService

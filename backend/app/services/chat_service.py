@@ -112,6 +112,7 @@ class ChatService:
             original_content=request.message,
             timestamp=now,
             message_type="text",
+            message_origin="live_user",
             is_duplicate=False,
             is_spam=False,
             language=language,
@@ -152,7 +153,7 @@ class ChatService:
             for m in recent
         ]
         system_prompt = build_system_prompt(
-            person.name, person.relationship_type, confidence.level, context.text
+            person.name, person.relationship_type, confidence.level, context.text, style=style
         )
         reply = self.provider.generate(system_prompt, history)
 
@@ -165,6 +166,7 @@ class ChatService:
             original_content=reply,
             timestamp=datetime.now(timezone.utc),
             message_type="text",
+            message_origin="generated",
             is_duplicate=False,
             is_spam=False,
             language="english",
@@ -308,7 +310,7 @@ class ChatService:
         # from the persisted user message; here we supply it without persisting.
         history.append({"role": "user", "content": request.message})
         system_prompt = build_system_prompt(
-            person.name, person.relationship_type, confidence.level, context.text
+            person.name, person.relationship_type, confidence.level, context.text, style=style
         )
         reply = self.provider.generate(system_prompt, history)
 
