@@ -2,198 +2,561 @@
 
 A privacy-conscious personal memory chatbot that imports conversations, analyzes long-term communication history, builds evidence-backed memories, and provides grounded answers using hybrid retrieval and source-aware context.
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com)
-[![React 18](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-green.svg)](https://fastapi.tiangolo.com/)
+[![React 18](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://www.typescriptlang.org/)
+[![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-purple.svg)](https://openrouter.ai/)
+[![Tests](https://img.shields.io/badge/Backend%20Tests-174%20passed-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
-[![v1.0.0](https://img.shields.io/badge/version-1.0.0-brightgreen.svg)](#certification)
+[![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](#project-status)
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Key Features](#key-features)
-- [Screenshots](#screenshots)
-- [Architecture](#architecture)
-- [Technology Stack](#technology-stack)
-- [Project Structure](#project-structure)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Testing](#testing)
-- [Certification](#certification)
-- [Security](#security)
-- [Known Limitations](#known-limitations)
-- [Roadmap](#roadmap)
-- [License](#license)
+* [Overview](#overview)
+* [Core Features](#core-features)
+* [How It Works](#how-it-works)
+* [Screenshots](#screenshots)
+* [Architecture](#architecture)
+* [Technology Stack](#technology-stack)
+* [Project Structure](#project-structure)
+* [Quick Start](#quick-start)
+* [Configuration](#configuration)
+* [Conversation Import](#conversation-import)
+* [Memory System](#memory-system)
+* [Two-Person Projects](#two-person-projects)
+* [Hybrid Retrieval](#hybrid-retrieval)
+* [Current-Conversation Learning](#current-conversation-learning)
+* [Voice Architecture](#voice-architecture)
+* [API](#api)
+* [Testing](#testing)
+* [Project Status](#project-status)
+* [Security](#security)
+* [Known Limitations](#known-limitations)
+* [Roadmap](#roadmap)
+* [License](#license)
 
 ---
 
 ## Overview
 
-The Personal Memory Chatbot learns about a person from their conversation history. Import WhatsApp-style chat logs, and the system automatically extracts facts, preferences, habits, and opinions — each linked to the exact message it came from. When you chat, answers are retrieved from these memories and the system tells you how confident it is.
+Personal Memory Chatbot is an AI application designed to build long-term conversational memory from imported and current conversations.
 
-The whole system is designed to be **personally deployable**: SQLite + a local vector store, a single Uvicorn process, and a React frontend. OpenRouter is the only external dependency when you want real AI-powered answers.
+Instead of treating every conversation as isolated, the system stores structured memories and links them to their original source messages.
+
+The chatbot uses those memories during future conversations to provide context-aware responses.
+
+The system supports:
+
+* Conversation history import
+* Two-person projects
+* Structured long-term memories
+* Memory corrections and version history
+* Source-linked evidence
+* Hybrid vector and lexical retrieval
+* Confidence scoring
+* Current-conversation learning
+* Project-level data isolation
+* OpenRouter AI providers
+* Offline provider support
+* Prompt-injection protection
+* Voice capability architecture
+
+The application is designed for personal deployment using SQLite, a local vector store, FastAPI, React, and an OpenRouter-compatible AI provider.
 
 ---
 
-## Key Features
+## Core Features
 
 ### Two-Person Project Model
-- Create projects with exactly two participants: one **ME** (your side) and one **OTHER** (the person the chatbot remembers)
-- All data — people, conversations, memories, vectors — is scoped to the project
-- Default project protection (cannot be deleted)
+
+Each project represents a two-person conversation environment.
+
+* One participant is assigned the `ME` role.
+* One participant is assigned the `OTHER` role.
+* People, conversations, memories, and vectors are scoped to the project.
+* Projects provide data isolation.
+* The default project is protected from accidental deletion.
+
+This model allows users to import their own conversation history and explicitly identify which participant represents themselves.
+
+---
 
 ### Conversation Import
-- **JSON, CSV, TXT, and ZIP** format support
-- **Preview step** (read-only) before anything is stored
-- Automatic cleaning (duplicates, empty messages, system messages, spam)
-- Consent confirmation required
-- Idempotent re-imports (no duplicates)
 
-### Persistent Memories
-- Rule-based extraction of **facts, preferences, interests, habits, and opinions**
-- Each memory traced to its **exact source message**
-- **Confidence scoring** with HIGH / MEDIUM / LOW levels
-- **Memory versioning** — full revision history for every create, edit, correction, and delete
+Supported formats include:
 
-### Corrections & Supersession
-- Correct wrong memories — old value is retired (never overwritten)
-- Replacement memory created and linked
-- Full audit trail via `memory_versions` table
+* JSON
+* CSV
+* TXT
+* ZIP
+
+The import workflow includes:
+
+* Read-only preview before storage
+* Message normalization
+* Duplicate detection
+* Empty-message filtering
+* System-message filtering
+* Spam filtering
+* Consent confirmation
+* Idempotent re-import protection
+
+Imported data is processed before becoming part of the persistent memory system.
+
+---
+
+### Persistent Memory
+
+The memory system extracts structured information from conversations.
+
+Supported memory categories include:
+
+* Facts
+* Preferences
+* Interests
+* Habits
+* Opinions
+
+Each memory is connected to its source message.
+
+Memory records include information such as:
+
+* Memory content
+* Person
+* Project
+* Memory type
+* Confidence
+* Importance
+* Source message
+* Creation time
+* Revision history
+* Status
+
+This creates an evidence-backed memory layer instead of relying on untraceable chatbot context.
+
+---
+
+### Memory Corrections and Versioning
+
+The system does not silently overwrite historical memories.
+
+When a memory needs correction:
+
+1. The existing memory is retained.
+2. Its status is updated.
+3. A replacement memory is created.
+4. The relationship between the old and new versions is recorded.
+5. The revision history remains available.
+
+The `memory_versions` system provides an audit trail for memory changes.
+
+This approach preserves historical context while allowing the current state to remain accurate.
+
+---
 
 ### Current-Conversation Learning
-- Explicit statements ("I now prefer X over Y") are automatically remembered
-- Conflicting memories are superseded with correction links
-- Each reply shows what was just learned (NEW / CORRECTION / NO_MEMORY)
+
+The chatbot also learns from new conversations.
+
+Examples include statements such as:
+
+```text
+I now prefer X over Y.
+```
+
+The system identifies learning events such as:
+
+* `NEW`
+* `UPDATED`
+* `CORRECTION`
+* `NO_MEMORY`
+
+When a new statement conflicts with an existing memory, the system creates a correction or replacement relationship instead of destroying the historical record.
+
+---
 
 ### Hybrid Retrieval
-- **Vector similarity** search (person-scoped, cosine similarity)
-- **Lexical fallback** when no vector matches (OR-LIKE search on memory content)
-- Ranking by: similarity x recency x importance x confidence
-- Source citation — every answer shows which memories it used
 
-### Source & Evidence Grounding
-- Every answer reports its confidence level
-- Debug panel shows retrieval details (ranked memories, similarity scores)
-- Memory sources panel shows exact memories used in the response
+The chatbot uses multiple retrieval strategies.
+
+#### Vector Retrieval
+
+Semantic similarity is used to locate memories related to the current question.
+
+The default vector implementation uses:
+
+* SQLite
+* NumPy
+* Cosine similarity
+
+#### Lexical Fallback
+
+When vector retrieval produces no suitable results, the system falls back to lexical matching.
+
+This provides a second retrieval path for exact or keyword-oriented queries.
+
+#### Ranking
+
+Retrieved memories are ranked using factors including:
+
+* Similarity
+* Recency
+* Importance
+* Confidence
+
+The resulting memories are passed into the response generation process.
+
+---
+
+### Source and Evidence Grounding
+
+Responses are connected to the memories used to generate them.
+
+The application provides:
+
+* Memory source information
+* Confidence information
+* Retrieval details
+* Ranked memory results
+* Similarity information
+* Source evidence
+
+This helps users understand where remembered information came from.
+
+---
 
 ### Project Isolation
-- Data for different people and conversations is fully isolated
-- Cross-project queries return only relevant results
-- Deletion of a project cascades vectors, embeddings, and memories
 
-### Premium Chat UI
-- Dark theme with responsive design
-- Real-time backend connection status (CONNECTED / DEGRADED / OFFLINE)
-- Project switcher with quick creation
-- Conversation rail with history
-- Animated transitions with `prefers-reduced-motion` support
+Project-level isolation prevents unrelated conversation data from being mixed.
+
+The project boundary applies to:
+
+* People
+* Conversations
+* Messages
+* Memories
+* Memory versions
+* Vectors
+* Embeddings
+
+Queries are restricted to the active project.
+
+Project deletion also removes associated project data according to the application's database relationships.
+
+---
+
+### Premium Chat Interface
+
+The frontend provides a modern dark interface with:
+
+* Chat interface
+* Conversation history
+* Project switcher
+* Project creation
+* Connection status
+* Memory feedback
+* Import workflow
+* Memory views
+* Settings
+* Voice capability status
+* Responsive layouts
+* Reduced-motion support
+
+Connection states include:
+
+```text
+CONNECTED
+DEGRADED
+OFFLINE
+```
+
+---
 
 ### Voice Architecture
-- Backend STT/TTS capability status (`/voice/status`)
-- Pluggable provider architecture (disabled by default)
-- Browser audio capture left to Web Speech API / MediaRecorder
+
+The backend exposes voice capability information through:
+
+```text
+GET /voice/status
+```
+
+The architecture supports pluggable speech providers.
+
+Version 1.0 keeps audio capture and playback primarily on the browser side through browser audio capabilities.
+
+Full voice provider integration is part of the roadmap.
+
+---
 
 ### Security
-- API keys from environment only — never in source code
-- `.env` git-ignored; `.env.example` has placeholders only
-- `/settings` and `/health` never return key material
-- Prompt-injection defense: memories marked as DATA, not instructions
-- Import requires explicit consent confirmation
-- Error messages scrubbed before surfacing
 
-### OpenRouter Provider
-- Split-key authentication (KEY_1 for embeddings, KEY_2 for chat)
-- Model fallback chains for both chat and embeddings
-- Rate-limit aware with automatic retry
-- Offline `local` provider for zero-key usage
+Security features include:
+
+* Environment-based API key configuration
+* `.env` exclusion from Git
+* Placeholder-only `.env.example`
+* Secret-safe health and settings endpoints
+* Prompt-injection protection
+* Import consent confirmation
+* Error-message sanitization
+* Project isolation
+* Memory audit history
+
+Imported conversation text is treated as data rather than executable instructions.
+
+---
+
+### OpenRouter Integration
+
+The application supports OpenRouter through an OpenAI-compatible API interface.
+
+The provider architecture supports:
+
+* Separate embedding and chat keys
+* Chat model fallback chains
+* Embedding model fallback chains
+* Rate-limit handling
+* Retry logic
+* Offline local provider
+
+Two-key configuration is supported:
+
+```text
+OPENROUTER_API_KEY_1
+```
+
+for embeddings, and:
+
+```text
+OPENROUTER_API_KEY_2
+```
+
+for chat.
+
+A legacy:
+
+```text
+OPENROUTER_API_KEY
+```
+
+configuration remains supported as a fallback.
+
+---
+
+## How It Works
+
+The overall processing flow is:
+
+```text
+                    User
+                      │
+                      ▼
+             React Frontend
+                      │
+                      ▼
+              FastAPI Backend
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+          ▼                       ▼
+    Conversation Data        Chat Request
+          │                       │
+          ▼                       ▼
+   Import / Analysis        Retrieval Service
+          │                       │
+          ▼                ┌──────┴──────┐
+       Memories            │             │
+          │                ▼             ▼
+          │             Vector       Lexical
+          │            Retrieval    Retrieval
+          │                │             │
+          └────────────────┴─────────────┘
+                           │
+                           ▼
+                    Ranked Memories
+                           │
+                           ▼
+                   Confidence Service
+                           │
+                           ▼
+                    AI Provider
+                           │
+                           ▼
+                 Grounded Response
+                           │
+                  ┌────────┴────────┐
+                  ▼                 ▼
+              Answer             Sources
+```
+
+### Chat Request Flow
+
+```text
+Frontend
+   ↓
+POST /chat
+   ↓
+chat_service
+   ↓
+retrieval_service
+   ↓
+embedding generation
+   ↓
+vector search
+   ↓
+lexical fallback if required
+   ↓
+memory ranking
+   ↓
+confidence calculation
+   ↓
+AI provider
+   ↓
+structured response
+   ↓
+sources + confidence + learning status
+```
 
 ---
 
 ## Screenshots
 
-> Screenshots are planned for a future release. The application UI is a premium dark-theme interface with the following screens:
+Screenshots will be added from a live application instance.
 
-| Screen | Purpose |
-|--------|---------|
-| `docs/screenshots/dashboard.png` | Main chat interface with conversation rail |
-| `docs/screenshots/chat.png` | Chat with grounded answer and source evidence |
-| `docs/screenshots/memories.png` | Memory timeline with version history |
-| `docs/screenshots/people.png` | Person profiles and writing style analysis |
-| `docs/screenshots/import.png` | Import workflow with preview |
-| `docs/screenshots/settings.png` | Settings with connection status |
+Planned screenshots:
 
-> **Note:** Screenshots will be captured from a live running instance and added before public launch.
+| Screen                           | Purpose                             |
+| -------------------------------- | ----------------------------------- |
+| `docs/screenshots/dashboard.png` | Main application dashboard          |
+| `docs/screenshots/chat.png`      | Grounded chat response with sources |
+| `docs/screenshots/memories.png`  | Memory timeline and revisions       |
+| `docs/screenshots/people.png`    | Person profiles and analysis        |
+| `docs/screenshots/import.png`    | Conversation import and preview     |
+| `docs/screenshots/settings.png`  | Configuration and provider status   |
+
+The screenshots section will be updated before the public portfolio release.
 
 ---
 
 ## Architecture
 
-```
-Frontend (React + Vite + TypeScript)
+The project follows a modular frontend and backend architecture.
+
+```text
+┌─────────────────────────────────────────┐
+│              React Frontend             │
+│        TypeScript + Vite + UI           │
+└────────────────────┬────────────────────┘
+                     │ HTTP
+                     ▼
+┌─────────────────────────────────────────┐
+│             FastAPI Backend             │
+│                REST API                 │
+└────────────────────┬────────────────────┘
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+        ▼            ▼            ▼
+   AI Services   Core Services  API Layer
+        │            │
+        │            ▼
+        │       Database Layer
+        │            │
+        │            ▼
+        │          SQLite
         │
         ▼
-Backend API (FastAPI + Uvicorn)
+   OpenRouter
         │
-   ┌────┼────────────┐
-   ▼    ▼            ▼
-Services  AI Provider  Vector Store
-   │     (OpenRouter)  (SQLite + numpy)
-   ▼
-SQLite Database
+        ├── Chat Models
+        └── Embedding Models
+
+              Vector Layer
+                   │
+             ┌─────┴─────┐
+             ▼           ▼
+          NumPy       ChromaDB
+          Default     Optional
 ```
 
-**Request flow:** `frontend → POST /chat → chat_service → retrieval_service (embed → query vector store → rank) → confidence_service → provider.generate(...) → structured reply + sources`
+Detailed technical architecture:
 
-For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+```text
+docs/ARCHITECTURE.md
+```
 
 ---
 
 ## Technology Stack
 
 ### Frontend
-- **React 18** — UI framework
-- **TypeScript** — Type safety
-- **Vite 5** — Build tool and dev server
+
+| Technology | Purpose                           |
+| ---------- | --------------------------------- |
+| React 18   | User interface                    |
+| TypeScript | Type safety                       |
+| Vite 5     | Build tool and development server |
 
 ### Backend
-- **Python 3.10+** — Runtime
-- **FastAPI** — Web framework
-- **SQLAlchemy 2.0** — ORM
-- **Pydantic** — Data validation
 
-### Data
-- **SQLite** — Authoritative relational store
-- **NumPy** — Cosine similarity for vector search
-- **Optional ChromaDB** — Alternative vector store
+| Technology     | Purpose             |
+| -------------- | ------------------- |
+| Python 3.10+   | Application runtime |
+| FastAPI        | REST API            |
+| Uvicorn        | ASGI server         |
+| SQLAlchemy 2.0 | Database ORM        |
+| Pydantic       | Data validation     |
 
-### AI
-- **OpenRouter** — Unified API for chat and embedding models
-- **OpenAI-compatible API** — Standard interface
-- **Embedding fallback chain** — Automatic model fallback
-- **Chat fallback chain** — Graceful degradation
+### Data Layer
+
+| Technology          | Purpose                             |
+| ------------------- | ----------------------------------- |
+| SQLite              | Primary relational database         |
+| NumPy               | Vector calculations                 |
+| Simple Vector Store | Default local vector implementation |
+| ChromaDB            | Optional vector backend             |
+
+### AI Layer
+
+| Technology               | Purpose                     |
+| ------------------------ | --------------------------- |
+| OpenRouter               | AI provider gateway         |
+| OpenAI-compatible API    | Provider interface          |
+| Chat fallback chain      | Model availability fallback |
+| Embedding fallback chain | Embedding model fallback    |
+| Local provider           | Offline operation           |
 
 ### Testing
-- **pytest** — 174 backend tests
-- **TypeScript typecheck** — Frontend type safety
-- **Vite production build** — Optimized frontend bundle
-- **Live E2E acceptance** — 11 end-to-end verification tests
+
+| Tool                | Purpose                         |
+| ------------------- | ------------------------------- |
+| pytest              | Backend testing                 |
+| TypeScript compiler | Frontend type checking          |
+| Vite                | Production build verification   |
+| compileall          | Python compilation checks       |
+| Secret scan         | Credential exposure checks      |
+| Live E2E checks     | Runtime acceptance verification |
 
 ---
 
 ## Project Structure
 
-```
+```text
 chatbot/
-├── .env                    # Runtime configuration (git-ignored)
-├── .env.example            # Configuration template
-├── LICENSE                 # MIT License
+│
+├── .env
+├── .env.example
+├── .gitignore
+├── LICENSE
 ├── README.md
 ├── CHANGELOG.md
-├── docker-compose.yml      # Docker deployment
+├── docker-compose.yml
+│
 ├── docs/
-│   ├── ARCHITECTURE.md     # Technical architecture
+│   ├── ARCHITECTURE.md
 │   ├── GITHUB_DESCRIPTION.md
 │   ├── PORTFOLIO.md
 │   ├── LINKEDIN_PROJECT.md
@@ -201,35 +564,43 @@ chatbot/
 │   ├── SCREENSHOT_PLAN.md
 │   ├── RESUME_ENTRY.md
 │   └── GITHUB_RELEASE_v1.0.0.md
+│
 ├── backend/
 │   ├── app/
-│   │   ├── ai/             # AI provider abstraction
-│   │   ├── api/            # REST endpoints
-│   │   ├── core/           # Config, logging, security
-│   │   ├── database/       # ORM models and repositories
-│   │   ├── services/       # Business logic
-│   │   ├── vectorstore/    # Vector storage backends
-│   │   └── factory.py      # Application factory
-│   ├── scripts/            # Dataset import, re-embedding, probes
-│   ├── tests/              # 174 hermetic tests
+│   │   ├── ai/
+│   │   ├── api/
+│   │   ├── core/
+│   │   ├── database/
+│   │   ├── services/
+│   │   ├── vectorstore/
+│   │   └── factory.py
+│   │
+│   ├── scripts/
+│   ├── tests/
 │   └── requirements.txt
+│
 ├── frontend/
 │   ├── src/
-│   │   ├── components/     # UI components
-│   │   ├── pages/          # Page views
-│   │   ├── services/       # API client
-│   │   └── types.ts        # TypeScript types
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   └── types.ts
 │   └── package.json
+│
 ├── scripts/
-│   ├── start_all.ps1       # Full stack startup
-│   ├── start_backend.ps1   # Backend startup
-│   └── start_frontend.ps1  # Frontend startup
+│   ├── start_all.ps1
+│   ├── start_backend.ps1
+│   └── start_frontend.ps1
+│
 ├── tests/
 │   └── .gitkeep
-└── data/                   # Runtime data (git-ignored)
-    ├── chatbot.db          # SQLite database
-    └── imports/            # Imported files
+│
+└── data/
+    ├── chatbot.db
+    └── imports/
 ```
+
+Runtime data and secrets should remain outside version control.
 
 ---
 
@@ -237,143 +608,704 @@ chatbot/
 
 ### Prerequisites
 
-- Python 3.10+
-- Node.js 18+
-- OpenRouter account with API keys (for live AI answers)
+Install:
 
-### One-Command Start (PowerShell)
+* Python 3.10 or newer
+* Node.js 18 or newer
+* npm
+* Git
+
+For live AI responses, configure an OpenRouter account and API keys.
+
+---
+
+### Clone the Repository
+
+```powershell
+git clone <YOUR_REPOSITORY_URL>
+cd chatbot
+```
+
+---
+
+### Configure Environment
+
+Copy the example configuration:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Open:
+
+```text
+.env
+```
+
+Configure the required provider settings.
+
+---
+
+### Start the Full Application
+
+From the project root:
 
 ```powershell
 .\scripts\start_all.ps1
 ```
 
-### Manual Start
+---
+
+### Start the Backend Manually
 
 ```powershell
-# Backend (http://localhost:8000)
 .\scripts\start_backend.ps1
-
-# Frontend (http://localhost:5173)
-.\scripts\start_frontend.ps1
 ```
 
-### Verify
+Backend:
 
-- Backend health: http://localhost:8000/health
-- Frontend: http://localhost:5173
-- API docs: http://localhost:8000/docs
+```text
+http://localhost:8000
+```
+
+---
+
+### Start the Frontend Manually
+
+Open another PowerShell window:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
+
+---
+
+### API Documentation
+
+Once the backend is running:
+
+```text
+http://localhost:8000/docs
+```
+
+Health endpoint:
+
+```text
+http://localhost:8000/health
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
 
 ---
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in your OpenRouter API keys:
+The application uses environment variables.
 
-```powershell
-cp .env.example .env
+Copy:
+
+```text
+.env.example
 ```
+
+to:
+
+```text
+.env
+```
+
+Example configuration:
 
 ```ini
-# Required for live AI answers
 AI_PROVIDER=openrouter
-OPENROUTER_API_KEY_1=sk-or-...     # embeddings key
-OPENROUTER_API_KEY_2=sk-or-...     # chat key
+
+OPENROUTER_API_KEY_1=your_embedding_key
+OPENROUTER_API_KEY_2=your_chat_key
+
+VECTOR_STORE=simple
 ```
 
-**Key separation (recommended):** Use two separate OpenRouter keys — one for embeddings (`KEY_1`) and one for chat (`KEY_2`). This isolates rate limits. The legacy single `OPENROUTER_API_KEY` still works as a fallback.
+Do not place real API keys in source code.
 
-See `.env.example` for all available settings (vector store, retrieval limits, voice, etc.).
+Do not commit `.env`.
 
-**Security:** `.env` is git-ignored and must never be committed. `.env.example` contains placeholders only.
+---
+
+### Split-Key Configuration
+
+The recommended provider configuration separates embedding and chat traffic.
+
+```text
+KEY_1
+  ↓
+Embedding requests
+
+KEY_2
+  ↓
+Chat requests
+```
+
+This separates provider usage between the two workloads.
+
+The application also supports the legacy single-key configuration:
+
+```ini
+OPENROUTER_API_KEY=your_key
+```
+
+---
+
+## Conversation Import
+
+The import system is designed for personal conversation exports.
+
+Supported formats:
+
+```text
+JSON
+CSV
+TXT
+ZIP
+```
+
+The workflow is:
+
+```text
+Select File
+    ↓
+Preview
+    ↓
+Validate
+    ↓
+Identify Participants
+    ↓
+Choose ME
+    ↓
+Confirm Consent
+    ↓
+Import
+    ↓
+Process Messages
+    ↓
+Extract Memories
+    ↓
+Store Sources
+    ↓
+Build Retrieval Index
+```
+
+The preview stage is read-only.
+
+This gives users an opportunity to review the imported data before persistent storage.
+
+---
+
+## Memory System
+
+The memory system connects extracted knowledge to source evidence.
+
+Example conceptual record:
+
+```text
+Person:
+Other
+
+Memory:
+Prefers coffee over tea
+
+Type:
+Preference
+
+Confidence:
+HIGH
+
+Source:
+Original conversation message
+
+Status:
+ACTIVE
+```
+
+The system keeps historical versions when corrections occur.
+
+```text
+Original Memory
+      │
+      ▼
+Correction
+      │
+      ▼
+Replacement Memory
+```
+
+Historical information remains available through the revision trail.
+
+---
+
+## Two-Person Projects
+
+Each project has two roles:
+
+```text
+ME
+OTHER
+```
+
+Example:
+
+```text
+Project: Personal Conversation
+
+ME:
+Kaif
+
+OTHER:
+Zain
+```
+
+The project stores its own:
+
+* People
+* Conversations
+* Messages
+* Memories
+* Memory versions
+* Vectors
+
+The same application supports separate projects without mixing their memory data.
+
+---
+
+## Hybrid Retrieval
+
+The retrieval system uses semantic and lexical approaches.
+
+### Vector Search
+
+The application converts searchable content into embeddings.
+
+It then calculates semantic similarity against the query.
+
+The default implementation uses NumPy-based vector calculations.
+
+### Lexical Search
+
+If vector retrieval does not provide suitable matches, lexical matching provides a fallback.
+
+This supports exact terms and keyword-focused questions.
+
+### Retrieval Ranking
+
+The ranking process considers:
+
+```text
+Similarity
+×
+Recency
+×
+Importance
+×
+Confidence
+```
+
+The resulting memories are used as context for response generation.
+
+---
+
+## Current-Conversation Learning
+
+The chatbot processes new information during ongoing conversations.
+
+Learning outcomes include:
+
+```text
+NEW
+UPDATED
+CORRECTION
+NO_MEMORY
+```
+
+Example:
+
+```text
+User:
+I stopped drinking tea. I prefer coffee now.
+
+System:
+CORRECTION
+
+Previous:
+Prefers tea
+
+Current:
+Prefers coffee
+```
+
+The previous memory remains part of the historical record.
+
+---
+
+## Voice Architecture
+
+Voice support is structured around a provider abstraction.
+
+Current version:
+
+```text
+Voice Capability API
+        ↓
+Provider Status
+        ↓
+Browser Audio Layer
+```
+
+The backend exposes:
+
+```text
+GET /voice/status
+```
+
+Version 1.0 focuses on the architecture and capability layer.
+
+Full speech-to-text and text-to-speech integration is planned for a future release.
+
+---
+
+## API
+
+The backend provides REST endpoints for application functionality.
+
+Core areas include:
+
+```text
+/health
+/settings
+/chat
+/search
+/conversations
+/memories
+/people
+/projects
+/import
+/voice/status
+```
+
+Interactive API documentation is available through FastAPI:
+
+```text
+http://localhost:8000/docs
+```
+
+The exact endpoint schemas are available in the running API documentation.
 
 ---
 
 ## Testing
 
+The project includes automated backend and frontend verification.
+
+### Backend Tests
+
+From:
+
+```text
+backend/
+```
+
+Run:
+
 ```powershell
-# Backend (174 tests, no API keys needed)
-cd backend
 .venv\Scripts\python.exe -m pytest -q
+```
 
-# Compile check
+Current recorded result:
+
+```text
+174 passed
+```
+
+### Python Compilation
+
+```powershell
 .venv\Scripts\python.exe -m compileall -q app scripts tests
+```
 
-# Frontend
-cd frontend
+### Frontend Typecheck
+
+From:
+
+```text
+frontend/
+```
+
+Run:
+
+```powershell
 npm run typecheck
+```
+
+### Production Build
+
+```powershell
 npm run build
 ```
 
+### Verification Areas
+
+The project verification process covers:
+
+* Backend unit tests
+* API behavior
+* Memory operations
+* Project isolation
+* Import behavior
+* Security checks
+* Secret handling
+* Frontend type checking
+* Production frontend build
+* Python compilation
+* Runtime acceptance checks
+
+Provider-dependent tests depend on external model availability and provider rate limits.
+
 ---
 
-## Certification
+## Project Status
 
-### v1.0.0 — Certified Release
+### Version 1.0.0
 
-| Check | Status |
-|-------|--------|
-| Backend tests | 174/174 PASS |
-| Live E2E acceptance | 11/11 PASS |
-| Frontend typecheck | PASS |
-| Frontend production build | PASS |
-| Backend compile | PASS |
-| Secret scan | PASS |
-| Git working tree | CLEAN |
-| License | MIT |
+The current release contains the core personal memory architecture.
+
+Implemented areas include:
+
+* Two-person projects
+* Conversation import
+* Persistent memories
+* Memory corrections
+* Memory version history
+* Source-linked memories
+* Hybrid retrieval
+* Confidence scoring
+* Current-conversation learning
+* Project isolation
+* OpenRouter integration
+* Split-key provider configuration
+* Offline provider architecture
+* Security controls
+* Premium chat interface
+* Voice capability architecture
+
+### Verification
+
+Recorded automated verification:
+
+| Check                     | Result     |
+| ------------------------- | ---------- |
+| Backend tests             | 174 passed |
+| Frontend typecheck        | Passed     |
+| Frontend production build | Passed     |
+| Python compile check      | Passed     |
+| Secret scan               | Passed     |
+| API authentication        | Verified   |
+| Chat authentication       | Verified   |
+| Git working tree          | Clean      |
+| License                   | MIT        |
+
+External AI provider behavior depends on model availability, account limits, rate limits, and network conditions.
 
 ---
 
 ## Security
 
 ### Data Handling
-- Imported conversation text is treated as **data**, not instructions
-- Prompt-injection defense: system prompt marks memories as `DATA, not instructions`
-- Any text inside a memory that tries to override behavior is treated as content to answer about
+
+Imported conversation text is treated as application data.
+
+Memory content is explicitly separated from system instructions.
+
+Content attempting to change application behavior through imported messages is treated as conversational data.
+
+---
 
 ### Secret Management
-- API keys from environment only — never in source code
-- `.env` is git-ignored; `.env.example` has placeholders only
-- `/settings` and `/health` return boolean presence flags, never key material
-- Error messages scrubbed before surfacing to responses or logs
-- Tests pin empty keys — never read real `.env`
+
+API keys are loaded through environment configuration.
+
+The repository uses:
+
+```text
+.env
+.env.example
+.gitignore
+```
+
+The `.env` file should never be committed.
+
+The example configuration contains placeholders only.
+
+Health and settings endpoints expose configuration status rather than secret values.
+
+---
 
 ### Project Isolation
-- All data scoped to projects (people, conversations, memories, vectors)
-- Cross-project queries return only relevant results
-- Deletion of a project cascades vectors, embeddings, and memories
+
+Application data is scoped by project.
+
+Project-scoped data includes:
+
+* People
+* Conversations
+* Messages
+* Memories
+* Vectors
+* Embeddings
+
+Cross-project retrieval is restricted to the active project.
+
+---
 
 ### Memory Integrity
-- Every memory has a source message link
-- Corrections create new versions — old values never destroyed
-- Full audit trail via `memory_versions` table
-- No automatic deletion of historical memory
+
+The memory system preserves historical changes.
+
+Corrections create new memory versions rather than silently destroying old values.
+
+Each memory is linked to source evidence where available.
+
+The revision trail records memory changes.
 
 ---
 
 ## Known Limitations
 
-- **Vector store** defaults to `simple` (SQLite + numpy). For ChromaDB, run `pip install chromadb` and set `VECTOR_STORE=chroma`.
-- **Free-tier OpenRouter** models are rate-limited (~20 req/min). The provider respects rate-limit headers and retries automatically.
-- **Offline mode** uses the `local` heuristic provider — functional but not as intelligent as a language model.
-- **Analysis** is rule-based (fast, deterministic) rather than LLM-driven.
-- **Voice** is architecture-only in v1.0.0 — the backend reports STT/TTS capability status but audio capture is left to the browser.
+### OpenRouter Rate Limits
+
+Free-tier models have provider-specific limits.
+
+Availability depends on the current OpenRouter account and model conditions.
+
+Provider failures do not represent failures in the local application architecture.
+
+---
+
+### Offline Provider
+
+The local provider supports operation without an external AI key.
+
+Its responses are heuristic-based and do not provide the same language-generation capabilities as an external language model.
+
+---
+
+### Analysis
+
+Conversation analysis is primarily rule-based in version 1.0.
+
+This provides deterministic behavior for supported analysis operations.
+
+---
+
+### Voice
+
+The current release provides the voice capability architecture and status API.
+
+Full integrated speech-to-text and text-to-speech workflows remain future work.
+
+---
+
+### Vector Store
+
+The default vector store is:
+
+```text
+simple
+```
+
+It uses SQLite and NumPy.
+
+ChromaDB remains an optional alternative.
 
 ---
 
 ## Roadmap
 
-> The following items are planned for future releases and are **not** implemented in v1.0.0.
+Future releases are planned around the following areas:
 
-- Voice integration (browser MediaRecorder + backend STT/TTS)
-- Multi-user support
-- Memory relationships and graph view
-- Conversation summarization
-- Mobile-optimized responsive layouts
+### Voice
+
+* Browser MediaRecorder integration
+* Speech-to-text provider integration
+* Text-to-speech provider integration
+* Voice conversation mode
+
+### Memory
+
+* Memory relationship graph
+* Memory graph visualization
+* Improved semantic clustering
+* Conversation summarization
+* Advanced memory conflict resolution
+
+### Application
+
+* Multi-user support
+* Mobile-focused layouts
+* Improved import adapters
+* Additional conversation export formats
+* Advanced analytics
+
+### AI
+
+* Additional model providers
+* Local model support
+* Improved retrieval strategies
+* Better context selection
+* More advanced memory extraction
+
+---
+
+## Documentation
+
+Additional project documentation is available in:
+
+```text
+docs/
+```
+
+Important documents include:
+
+```text
+docs/ARCHITECTURE.md
+docs/PORTFOLIO.md
+docs/LINKEDIN_PROJECT.md
+docs/DEMO_SCRIPT.md
+docs/SCREENSHOT_PLAN.md
+docs/RESUME_ENTRY.md
+docs/GITHUB_RELEASE_v1.0.0.md
+```
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
+
+See:
+
+```text
+LICENSE
+```
 
 Copyright (c) 2026 Muhammad Kaif
+
