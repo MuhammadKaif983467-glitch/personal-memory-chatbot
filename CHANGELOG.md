@@ -118,6 +118,27 @@ All notable changes to the Personal Memory Chatbot.
 - Database integrity: ok, 0 FK violations
 - New tables created: conversation_summaries, memory_relationships
 
+### V3.3 Phase 4 — Playwright Browser E2E & Full-System Certification
+
+#### Added
+
+- **Playwright E2E test suite** — 61 tests across 13 spec files (smoke, projects, people, conversations, search, import, memory, chat, backup, security, isolation, relationships, summary, console-performance)
+- **Playwright configuration** — Chromium project, webServer config for backend (port 8000) and frontend (port 5173), shared test fixtures
+- **Test fixtures** — `waitForApp()`, `apiGet/Post/Delete`, `createProject` helpers for consistent E2E test setup
+- **Console/network audit** — tests verify no console errors, no secret leakage in requests, no 5xx failures on frontend load
+- **Browser performance benchmarks** — page load (<15s), search API (<2s), import API (<5s), backup API (<5s), chat API (best-effort)
+- **Project isolation E2E** — verifies search does not leak across projects with timestamp-unique markers
+- **Import E2E** — JSON API, CSV multipart upload, TXT multipart upload, participant preservation
+- **Backup E2E** — create, list, validate, integrity check, path traversal rejection
+
+#### Verified
+
+- Playwright E2E: 57 passed, 4 skipped (`BLOCKED_EXTERNAL_DEPENDENCY`: OpenRouter provider timeout), 0 failed
+- Backend regression: 342/342 pass (unchanged)
+- Console audit: 0 errors, 0 secret leakage
+- Performance: page load 2.6s avg, search 45ms avg, import 67ms avg, backup 535ms avg
+- Project isolation: verified with timestamp-unique markers (no cross-project data leak)
+
 ---
 
 ## [3.2.0] - 2026-09-21
