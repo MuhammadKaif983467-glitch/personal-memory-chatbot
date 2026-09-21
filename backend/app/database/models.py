@@ -42,7 +42,7 @@ class Person(Base):
     __tablename__ = "persons"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(200), index=True)
     # Role within the (two-person) project: "ME" / "OTHER". Empty for legacy
     # participants created before roles existed; never treated as a default ME.
@@ -54,6 +54,8 @@ class Person(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
+    # Cascade: deleting a person removes their profile and style, but
+    # conversations and messages are preserved (person_id SET NULL via FK).
     project: Mapped["Project"] = relationship()
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="person")
 
@@ -62,18 +64,19 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id", ondelete="SET NULL"), index=True)
     title: Mapped[str] = mapped_column(String(300), default="Untitled")
     source: Mapped[str] = mapped_column(String(100), default="chat")
     fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Cascade: deleting a conversation removes its messages and participants.
     project: Mapped["Project"] = relationship()
     person: Mapped["Person"] = relationship(back_populates="conversations")
-    messages: Mapped[list["Message"]] = relationship(back_populates="conversation")
-    participants: Mapped[list["ConversationParticipant"]] = relationship(back_populates="conversation")
+    messages: Mapped[list["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
+    participants: Mapped[list["ConversationParticipant"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
 
 
 class ConversationParticipant(Base):
@@ -87,8 +90,8 @@ class ConversationParticipant(Base):
     __tablename__ = "conversation_participants"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(20), default="OTHER")  # ME | OTHER
     display_name_at_import: Mapped[str] = mapped_column(String(200), default="")
 
@@ -100,8 +103,8 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True)
-    person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True, index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id", ondelete="SET NULL"), nullable=True, index=True)
     sender: Mapped[str] = mapped_column(String(200), index=True)
     content: Mapped[str] = mapped_column(Text, default="")          # cleaned content
     original_content: Mapped[str] = mapped_column(Text, default="")  # raw imported content
@@ -114,6 +117,7 @@ class Message(Base):
     msg_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+    # Cascade: deleting a message removes its embedding records and versions.
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
     @property
@@ -125,7 +129,8 @@ class PersonProfile(Base):
     __tablename__ = "person_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), unique=True, index=True)
+    # Cascade: deleting a person removes their profile.
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id", ondelete="CASCADE"), unique=True, index=True)
     interests: Mapped[list] = mapped_column(JSON, default=list)          # list of Fact dicts
     preferences: Mapped[list] = mapped_column(JSON, default=list)        # list of Fact dicts
     important_facts: Mapped[list] = mapped_column(JSON, default=list)    # list of Fact dicts
@@ -138,7 +143,8 @@ class WritingStyle(Base):
     __tablename__ = "writing_styles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), unique=True, index=True)
+    # Cascade: deleting a person removes their writing style.
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id", ondelete="CASCADE"), unique=True, index=True)
     common_words: Mapped[list] = mapped_column(JSON, default=list)
     common_phrases: Mapped[list] = mapped_column(JSON, default=list)
     emoji_usage: Mapped[dict] = mapped_column(JSON, default=dict)        # common_emojis, frequency
@@ -157,15 +163,15 @@ class Memory(Base):
     __tablename__ = "memories"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(Text)
-    source_message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id"), nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     memory_type: Mapped[str] = mapped_column(String(50), index=True)  # FACT / PREFERENCE / ...
     importance: Mapped[float] = mapped_column(Float, default=0.5)
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | corrected | deleted
-    correction_of_id: Mapped[int | None] = mapped_column(ForeignKey("memories.id"), nullable=True)
+    correction_of_id: Mapped[int | None] = mapped_column(ForeignKey("memories.id", ondelete="SET NULL"), nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -175,7 +181,8 @@ class EmbeddingRecord(Base):
     __tablename__ = "embedding_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    memory_id: Mapped[int] = mapped_column(ForeignKey("memories.id"), unique=True, index=True)
+    # Cascade: deleting a memory removes its embedding record.
+    memory_id: Mapped[int] = mapped_column(ForeignKey("memories.id", ondelete="CASCADE"), unique=True, index=True)
     vector_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     model: Mapped[str] = mapped_column(String(100), default="")
     checksum: Mapped[str] = mapped_column(String(64), default="")
@@ -204,14 +211,14 @@ class MemoryVersion(Base):
     __tablename__ = "memory_versions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    memory_id: Mapped[int] = mapped_column(ForeignKey("memories.id"), index=True)
+    memory_id: Mapped[int] = mapped_column(ForeignKey("memories.id", ondelete="CASCADE"), index=True)
     revision: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(20), default=VERSION_STATUS_ACTIVE)
     content: Mapped[str] = mapped_column(Text, default="")
     memory_type: Mapped[str] = mapped_column(String(50), default="FACT")
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     importance: Mapped[float] = mapped_column(Float, default=0.5)
-    source_message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id"), nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
     actor: Mapped[str] = mapped_column(String(30), default="system")  # import|analyze|chat|correction|edit|manual
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

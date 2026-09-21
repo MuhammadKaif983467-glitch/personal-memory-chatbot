@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.database.models import (
@@ -327,6 +327,13 @@ class MessageRepository:
         return message
 
     def delete(self, message: Message) -> None:
+        # Null out FK references from memories and memory_versions before deleting.
+        self.session.execute(
+            update(Memory).where(Memory.source_message_id == message.id).values(source_message_id=None)
+        )
+        self.session.execute(
+            update(MemoryVersion).where(MemoryVersion.source_message_id == message.id).values(source_message_id=None)
+        )
         self.session.delete(message)
         self.session.flush()
 
@@ -414,6 +421,108 @@ class MessageRepository:
         ).rowcount
         self.session.flush()
         return rows if rows else 0
+
+    # ------------------------------------------------------------------
+    # FTS5 search (V3.3 Phase 1)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sanitize_fts_query(query_text: str) -> str:
+        """Sanitize user input for FTS5 MATCH queries.
+
+        FTS5 interprets special characters (*, ", AND, OR, NOT, NEAR) as
+        operators.  We strip them and use simple term matching to prevent
+        unexpected behavior or injection.
+        """
+        import re as _re
+        # Remove FTS5 special operators
+        sanitized = _re.sub(r'["*(){}^~\\:]', ' ', query_text)
+        sanitized = _re.sub(r'\b(AND|OR|NOT|NEAR)\b', ' ', sanitized, flags=_re.IGNORECASE)
+        return sanitized.strip()
+
+    def fts_search(
+        self,
+        query_text: str,
+        *,
+        project_id: Optional[int] = None,
+        person_id: Optional[int] = None,
+        conversation_id: Optional[int] = None,
+        limit: int = 50,
+    ) -> Sequence[Message]:
+        """Full-text search using FTS5 with fallback to LIKE.
+
+        Project isolation is enforced via subquery on conversations table.
+        """
+        sanitized = self._sanitize_fts_query(query_text)
+        if not sanitized:
+            return []
+
+        terms = sanitized.split()
+        if not terms:
+            return []
+
+        fts_expr = " OR ".join(f'"{t}"' for t in terms[:8])
+
+        try:
+            # Build raw SQL with proper parameterization for FTS5 MATCH
+            where_clauses = ["m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH :expr)"]
+            params: dict = {"expr": fts_expr, "limit": limit}
+
+            if project_id is not None:
+                where_clauses.append("m.conversation_id IN (SELECT id FROM conversations WHERE project_id = :project_id)")
+                params["project_id"] = project_id
+            if person_id is not None:
+                where_clauses.append("m.person_id = :person_id")
+                params["person_id"] = person_id
+            if conversation_id is not None:
+                where_clauses.append("m.conversation_id = :conversation_id")
+                params["conversation_id"] = conversation_id
+
+            where_sql = " AND ".join(where_clauses)
+            sql = text(f"""
+                SELECT m.id FROM messages m
+                WHERE {where_sql}
+                ORDER BY m.timestamp DESC NULLS LAST, m.id DESC
+                LIMIT :limit
+            """)
+            result = self.session.execute(sql, params)
+            ids = [row[0] for row in result.fetchall()]
+            if not ids:
+                return []
+            return list(self.session.scalars(select(Message).where(Message.id.in_(ids))).all())
+        except Exception:
+            # Fallback to LIKE-based search if FTS5 is unavailable
+            return self.search(
+                sanitized,
+                conversation_id=conversation_id,
+                person_id=person_id,
+                limit=limit,
+            )
+
+    def fts_count(self) -> int:
+        """Return the number of rows in the FTS5 index."""
+        try:
+            # External-content FTS5 tables don't support plain count(*).
+            # Use MATCH with a broad term or integrity check.
+            result = self.session.execute(text(
+                "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH '\"\"'"
+            )).scalar()
+            if result is not None:
+                return result
+            # Fallback: count from messages table (FTS should be 1:1)
+            return self.session.scalar(text("SELECT count(*) FROM messages")) or 0
+        except Exception:
+            return 0
+
+    def fts_rebuild(self) -> int:
+        """Rebuild the FTS5 index from the messages table. Returns row count."""
+        try:
+            # For external-content FTS5, use the rebuild command.
+            self.session.execute(text("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')"))
+            self.session.flush()
+            return self.session.scalar(text("SELECT count(*) FROM messages")) or 0
+        except Exception:
+            return 0
 
 
 class PersonProfileRepository:

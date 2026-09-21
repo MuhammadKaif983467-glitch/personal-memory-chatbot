@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AppContext, get_context, get_db
 from app.core.exceptions import NotFoundError
+from app.database.models import MemoryVersion
 from app.database.repositories import ConversationRepository, MessageRepository, ConversationParticipantRepository
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.message import (
@@ -109,6 +110,24 @@ def delete_conversation(
     ConversationParticipantRepository(db).delete_for_conversation(conversation_id)
 
     messages = MessageRepository(db).list_by_conversation(conversation_id)
+
+    # Null out FK references from memories and memory_versions before deleting
+    # messages to satisfy FK constraints.
+    message_ids = [m.id for m in messages]
+    if message_ids:
+        from sqlalchemy import update
+        db.execute(
+            update(MemoryVersion).where(
+                MemoryVersion.source_message_id.in_(message_ids)
+            ).values(source_message_id=None)
+        )
+        from app.database.models import Memory
+        db.execute(
+            update(Memory).where(
+                Memory.source_message_id.in_(message_ids)
+            ).values(source_message_id=None)
+        )
+
     for message in messages:
         db.delete(message)
     db.delete(conversation)

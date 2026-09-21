@@ -2,14 +2,22 @@
 
 The engine/session factory is created per application (dependency injection),
 so tests can spin up isolated databases without touching a module-level engine.
+
+V3.3 Phase 1 additions:
+- SQLite foreign-key enforcement via connection event listener
+- Versioned migration framework (schema_migrations table)
+- FTS5 virtual table for message full-text search
+- Composite indexes on verified hot query paths
+- Orphaned FK reference cleanup
 """
 
 from __future__ import annotations
 
+import hashlib
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import create_engine, func, select, text, update
+from sqlalchemy import create_engine, event, func, select, text, update
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -28,6 +36,14 @@ class Database:
             bind=self.engine, autoflush=False, expire_on_commit=False, future=True
         )
 
+        # Enable foreign-key enforcement for every SQLite connection.
+        if url.startswith("sqlite"):
+            @event.listens_for(self.engine, "connect")
+            def _enable_fk(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA foreign_keys = ON")
+                cursor.close()
+
     def init(self) -> None:
         """Create tables and apply additive migrations (idempotent).
 
@@ -36,20 +52,59 @@ class Database:
         # noqa: F401 - importing registers the models on Base.metadata
         from app.database import models  # noqa: F401
         Base.metadata.create_all(self.engine)
+        self._ensure_schema_migrations_table()
         self.migrate()
+        self._apply_migration(
+            "V3.3.001",
+            "Clean orphaned FK references before FK enforcement",
+            self._v3_3_001_clean_orphaned_fks,
+        )
+        self._ensure_fts5()
+        self._ensure_indexes()
+        self._ensure_fts_sync()
+
+    # ------------------------------------------------------------------
+    # Schema migrations versioning
+    # ------------------------------------------------------------------
+
+    def _ensure_schema_migrations_table(self) -> None:
+        """Create the schema_migrations tracking table if it does not exist."""
+        with self.engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    description TEXT NOT NULL DEFAULT ''
+                )
+            """))
+            conn.commit()
+
+    def _migration_applied(self, version: str) -> bool:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT 1 FROM schema_migrations WHERE version = :v"), {"v": version}
+            ).fetchone()
+            return row is not None
+
+    def _apply_migration(self, version: str, description: str, fn) -> None:
+        """Apply a migration function if not yet recorded.  Idempotent."""
+        if self._migration_applied(version):
+            return
+        fn()
+        with self.engine.connect() as conn:
+            conn.execute(
+                text("INSERT INTO schema_migrations (version, description) VALUES (:v, :d)"),
+                {"v": version, "d": description},
+            )
+            conn.commit()
+
+    # ------------------------------------------------------------------
+    # Legacy migration (V3.2 and earlier – kept for backward compat)
+    # ------------------------------------------------------------------
 
     def migrate(self) -> None:
         """Additive, non-destructive schema/data migration for existing SQLite
         databases created before the multi-project model existed.
-
-        * adds a ``project_id`` column to persons / conversations / memories,
-        * adds the ``participant_role`` column to persons (ME / OTHER setup),
-        * adds ``message_origin`` to messages (imported / live_user / generated),
-        * creates the ``conversation_participants`` table if missing,
-        * backfills legacy conversations with participant records,
-        * ensures a default ("Demo / Regression") project exists,
-        * backfills every untagged row into that project so no data is ever
-          stranded outside an isolation boundary.
         """
         if not self.url.startswith("sqlite"):
             return
@@ -111,15 +166,11 @@ class Database:
                 update(Memory).where(Memory.project_id.is_(None)).values(project_id=memory_project)
             )
 
-            # Backfill legacy conversations: create ConversationParticipant records
-            # for conversations that have no participants yet, and add missing
-            # OTHER participants for conversations that only have ME.
             existing_participants = set(
                 session.execute(
                     select(ConversationParticipant.conversation_id).distinct()
                 ).scalars().all()
             )
-            # Conversations with zero participants need full backfill.
             legacy_conversations = session.execute(
                 select(Conversation.id, Conversation.person_id).where(
                     Conversation.id.notin_(existing_participants)
@@ -162,8 +213,6 @@ class Database:
                                     Message.sender == sender_name,
                                 ).values(person_id=other_person.id)
                             )
-            # Also add missing OTHER participants for conversations that have ME
-            # but are missing OTHER (partial backfill from earlier migration).
             for conv_id in existing_participants:
                 existing_roles = {
                     cp.role for cp in session.execute(
@@ -173,7 +222,6 @@ class Database:
                     ).scalars().all()
                 }
                 if "OTHER" not in existing_roles:
-                    # This conversation has ME but no OTHER - detect from messages.
                     conv = session.get(Conversation, conv_id)
                     if conv is None:
                         continue
@@ -207,7 +255,6 @@ class Database:
                                 role="OTHER",
                                 display_name_at_import=sender_name,
                             ))
-                            # Update message person_id for OTHER sender.
                             session.execute(
                                 update(Message).where(
                                     Message.conversation_id == conv_id,
@@ -217,11 +264,9 @@ class Database:
             if legacy_conversations or existing_participants:
                 session.flush()
 
-            # Add fingerprint column if missing (idempotent).
             cols = {row[1] for row in session.execute(text("PRAGMA table_info(conversations)")).fetchall()}
             if "fingerprint" not in cols:
                 session.execute(text("ALTER TABLE conversations ADD COLUMN fingerprint VARCHAR(64)"))
-                # Backfill fingerprints for existing conversations.
                 from app.utils.fingerprint import compute_conversation_fingerprint
                 convs = session.execute(select(Conversation.id, Conversation.project_id, Conversation.source)).all()
                 for conv_id, conv_proj, conv_source in convs:
@@ -241,6 +286,157 @@ class Database:
                         update(Conversation).where(Conversation.id == conv_id).values(fingerprint=fp)
                     )
                 session.flush()
+
+    # ------------------------------------------------------------------
+    # V3.3 Phase 1 migrations
+    # ------------------------------------------------------------------
+
+    def _v3_3_001_clean_orphaned_fks(self) -> None:
+        """Clean orphaned source_message_id references in memories and
+        memory_versions before FK enforcement is turned on.
+
+        These references point to messages that were deleted or never existed.
+        We SET NULL to preserve the memory record while removing the broken FK.
+        """
+        with self.engine.connect() as conn:
+            # Orphaned memories.source_message_id
+            result = conn.execute(text("""
+                UPDATE memories
+                SET source_message_id = NULL
+                WHERE source_message_id IS NOT NULL
+                  AND source_message_id NOT IN (SELECT id FROM messages)
+            """))
+            mem_orphans = result.rowcount
+
+            # Orphaned memory_versions.source_message_id
+            result = conn.execute(text("""
+                UPDATE memory_versions
+                SET source_message_id = NULL
+                WHERE source_message_id IS NOT NULL
+                  AND source_message_id NOT IN (SELECT id FROM messages)
+            """))
+            ver_orphans = result.rowcount
+
+            conn.commit()
+
+    def _ensure_fts5(self) -> None:
+        """Create the FTS5 virtual table for message full-text search.
+
+        Uses an external-content FTS5 table backed by the messages table.
+        This avoids data duplication while enabling efficient full-text search.
+        """
+        with self.engine.connect() as conn:
+            # Check if FTS5 table already exists
+            exists = conn.execute(text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages_fts'"
+            )).fetchone()
+            if exists:
+                return
+
+            # Create external-content FTS5 table
+            conn.execute(text("""
+                CREATE VIRTUAL TABLE messages_fts USING fts5(
+                    content,
+                    sender,
+                    conversation_id UNINDEXED,
+                    person_id UNINDEXED,
+                    timestamp UNINDEXED,
+                    message_id UNINDEXED,
+                    content=messages,
+                    content_rowid=id,
+                    tokenize='unicode61 remove_diacritics 2'
+                )
+            """))
+
+            # Populate with existing messages
+            conn.execute(text("""
+                INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp, message_id)
+                SELECT id, content, sender, conversation_id, person_id, timestamp, id FROM messages
+            """))
+            conn.commit()
+
+    def _ensure_fts_sync(self) -> None:
+        """Create triggers to keep FTS5 synchronized with the messages table.
+
+        Handles INSERT, UPDATE, and DELETE operations on messages.
+        """
+        with self.engine.connect() as conn:
+            # Check if triggers already exist
+            existing = conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'messages_fts_%'"
+            )).fetchall()
+            existing_names = {row[0] for row in existing}
+
+            if "messages_fts_ai" not in existing_names:
+                conn.execute(text("""
+                    CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
+                        INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp, message_id)
+                        VALUES (new.id, new.content, new.sender, new.conversation_id, new.person_id, new.timestamp, new.id);
+                    END
+                """))
+
+            if "messages_fts_ad" not in existing_names:
+                conn.execute(text("""
+                    CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages BEGIN
+                        INSERT INTO messages_fts (messages_fts, rowid, content, sender, conversation_id, person_id, timestamp, message_id)
+                        VALUES ('delete', old.id, old.content, old.sender, old.conversation_id, old.person_id, old.timestamp, old.id);
+                    END
+                """))
+
+            if "messages_fts_au" not in existing_names:
+                conn.execute(text("""
+                    CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
+                        INSERT INTO messages_fts (messages_fts, rowid, content, sender, conversation_id, person_id, timestamp, message_id)
+                        VALUES ('delete', old.id, old.content, old.sender, old.conversation_id, old.person_id, old.timestamp, old.id);
+                        INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp, message_id)
+                        VALUES (new.id, new.content, new.sender, new.conversation_id, new.person_id, new.timestamp, new.id);
+                    END
+                """))
+            conn.commit()
+
+    def _ensure_indexes(self) -> None:
+        """Create composite indexes on verified hot query paths.
+
+        Each index is justified by an actual query pattern in repositories.py
+        or services/. No speculative indexes are created.
+        """
+        indexes = [
+            # messages: conversation lookup sorted by timestamp (list_by_conversation)
+            ("ix_messages_conversation_ts", "messages", "(conversation_id, timestamp, id)"),
+            # messages: project-scoped person lookup (list_all with person_id)
+            ("ix_messages_person_ts", "messages", "(person_id, timestamp DESC, id DESC)"),
+            # messages: sender-based queries (search, participant detection)
+            ("ix_messages_sender_conv", "messages", "(sender, conversation_id)"),
+            # messages: message_origin filtering (chat_service, import)
+            ("ix_messages_origin", "messages", "(message_origin)"),
+            # memories: project+person+type active lookup (search, list_active)
+            ("ix_memories_proj_person_type", "memories", "(project_id, person_id, memory_type, status)"),
+            # memories: status+updated_at (list_active ordering)
+            ("ix_memories_status_updated", "memories", "(status, updated_at DESC)"),
+            # memories: source_message_id (list_by_source_messages)
+            ("ix_memories_source_msg", "memories", "(source_message_id)"),
+            # conversations: project+started_at (list_all ordering)
+            ("ix_conversations_proj_started", "conversations", "(project_id, started_at)"),
+            # conversation_participants: unique constraint (person per conversation)
+            ("ix_cp_conv_person", "conversation_participants", "(conversation_id, person_id)"),
+            # memory_versions: memory_id+revision (version history)
+            ("ix_mv_memory_revision", "memory_versions", "(memory_id, revision)"),
+        ]
+
+        with self.engine.connect() as conn:
+            existing_indexes = {
+                row[0] for row in conn.execute(text(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                )).fetchall()
+            }
+            for idx_name, table, cols in indexes:
+                if idx_name not in existing_indexes:
+                    conn.execute(text(f"CREATE INDEX {idx_name} ON {table}{cols}"))
+            conn.commit()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def session(self) -> Session:
         return self.session_factory()

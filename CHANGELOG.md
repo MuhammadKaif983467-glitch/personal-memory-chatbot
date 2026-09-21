@@ -2,6 +2,47 @@
 
 All notable changes to the Personal Memory Chatbot.
 
+## [Unreleased]
+
+### V3.3 Phase 1 — Database Hardening & FTS Foundation
+
+#### Added
+
+- **SQLite foreign-key enforcement** — `PRAGMA foreign_keys = ON` via SQLAlchemy event listener on every connection
+- **FTS5 full-text search** — external-content virtual table `messages_fts` with `unicode61` tokenizer, project-scoped search
+- **FTS5 synchronization triggers** — `INSERT`/`UPDATE`/`DELETE` triggers keep FTS index in sync with messages table
+- **FTS5 query sanitization** — strips FTS5 operators (`*`, `"`, `AND`, `OR`, `NOT`, `NEAR`) to prevent injection
+- **Composite indexes** — 10 verified indexes on hot query paths (`messages(conversation_id, timestamp)`, `memories(project_id, person_id, memory_type, status)`, etc.)
+- **Schema migration versioning** — `schema_migrations` table tracks applied migrations, idempotent execution
+- **Migration V3.3.001** — cleans orphaned `source_message_id` references in `memories` and `memory_versions`
+- **ON DELETE clauses** — proper `SET NULL` / `CASCADE` on all foreign keys for new databases
+- **FTS fallback hierarchy** — FTS5 → LIKE-based search when FTS5 unavailable
+- **Ranking metadata foundation** — FTS results return `timestamp`, `person_id`, `conversation_id`, `project_id` for future reranking
+
+#### Changed
+
+- `MessageRepository.delete()` nulls out `memories.source_message_id` and `memory_versions.source_message_id` before deleting
+- `delete_conversation` endpoint nulls out FK references before deleting messages
+- `merge_people` now reassigns `conversation_participants` before deleting source person
+- Conversation model: `cascade="all, delete-orphan"` on `messages` and `participants` relationships
+- All foreign keys now have explicit `ondelete` behavior in ORM models
+
+#### Security
+
+- FTS5 operator injection blocked by query sanitization layer
+- SQL injection in search parameters prevented by parameterized queries
+- Project isolation verified across FTS5 searches
+- Oversized query strings handled safely (422 or bounded results)
+
+#### Testing
+
+- Backend tests: 293/293 pass (260 original + 33 new Phase 1 tests)
+- New test classes: `TestFKEnforcement`, `TestFTS5`, `TestMigration`, `TestDatabaseIntegrity`, `TestLargeData`, `TestSecurity`, `TestSearchCompatibility`, `TestCompositeIndexes`, `TestBackendImports`
+- 10,000-message import test passes (<60s)
+- FTS search on 10k messages completes in <5s
+
+---
+
 ## [3.2.0] - 2026-09-21
 
 Production hardening and release certification.

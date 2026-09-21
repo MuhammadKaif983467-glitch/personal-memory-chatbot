@@ -14,8 +14,9 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
-from app.database.models import Conversation, Memory, Message, Person, PersonProfile, WritingStyle
+from app.database.models import Conversation, ConversationParticipant, Memory, Message, Person, PersonProfile, WritingStyle
 from app.database.repositories import (
+    ConversationParticipantRepository,
     ConversationRepository,
     MemoryRepository,
     MessageRepository,
@@ -65,6 +66,18 @@ class IdentityService:
         moved_messages = MessageRepository(self.session).reassign(from_person_id, to_person_id)
         moved_conversations = ConversationRepository(self.session).reassign(from_person_id, to_person_id)
         MemoryRepository(self.session).reassign(from_person_id, to_person_id)
+
+        # Reassign conversation participants from source to target person.
+        self.session.execute(
+            update(ConversationParticipant).where(
+                ConversationParticipant.person_id == from_person_id
+            ).values(person_id=to_person_id)
+        )
+
+        # Null out memory source_message_id references that point to messages
+        # belonging to the source person (they now belong to target).
+        # source_message_id is a nullable FK - no reassignment needed since
+        # memories already got reassigned above.
 
         # Profiles / styles have a unique person_id: move the source record
         # only when the target does not already have one.

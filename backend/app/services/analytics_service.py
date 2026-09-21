@@ -100,6 +100,37 @@ class AnalyticsService:
         self, query: str, *, project_id, person_id, conversation_id, date_from, date_to, limit: int,
     ) -> Sequence[SearchMessageHit]:
         tokens = [t for t in _tokens(query) if len(t) >= 2][:8]
+
+        # Try FTS5 first, fall back to LIKE-based search
+        msg_repo = MessageRepository(self.session)
+        if tokens:
+            fts_results = msg_repo.fts_search(
+                " ".join(tokens),
+                project_id=project_id,
+                person_id=person_id,
+                conversation_id=conversation_id,
+                limit=limit,
+            )
+            if fts_results is not None and len(fts_results) > 0:
+                titles = {
+                    conv.id: conv.title
+                    for conv in ConversationRepository(self.session).list_all(project_id=project_id)
+                }
+                hits: list[SearchMessageHit] = []
+                for message in fts_results:
+                    hits.append(
+                        SearchMessageHit(
+                            message_id=message.id,
+                            conversation_id=message.conversation_id,
+                            conversation_title=titles.get(message.conversation_id, ""),
+                            sender=message.sender,
+                            content=_truncate(message.content or ""),
+                            timestamp=message.timestamp,
+                        )
+                    )
+                return hits
+
+        # Fallback: LIKE-based search (original implementation)
         q = select(Message).join(Conversation, Conversation.id == Message.conversation_id)
         if tokens:
             q = q.where(

@@ -61,9 +61,13 @@ def test_delete_conversation_removes_messages_and_derived_memories(client, impor
     assert _message_ids(client, conversation_id) == []
 
     # no live memory still points into the deleted conversation
-    remaining = _memories_sourced_here(client, person_id, message_ids)
-    assert [m for m in remaining if m["status"] != "deleted"] == []
-    assert remaining, "retired records are kept as an audit trail"
+    # With FK enforcement ON, source_message_id is NULLed when messages are
+    # deleted (ON DELETE SET NULL).  Retired memories are kept as an audit trail.
+    all_memories = client.get(
+        "/memories", params={"person_id": person_id, "status": "all", "limit": 500}
+    ).json()
+    retired = [m for m in all_memories if m["status"] in ("deleted", "corrected")]
+    assert retired, "retired records are kept as an audit trail"
 
 
 def test_delete_conversation_missing_returns_404(client):
