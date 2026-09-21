@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # ---- Core ----
     app_name: str = "Personal Memory Chatbot"
-    app_version: str = "3.2.0"
+    app_version: str = "3.3.0"
     log_level: str = "INFO"
     show_memory_sources: bool = True
     consent_required: bool = True
