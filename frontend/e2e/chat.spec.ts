@@ -23,6 +23,7 @@ async function chatWithProvider(
 
 test.describe('Chat E2E', () => {
   test('chat API accepts messages with person_id', async ({ page }) => {
+    test.setTimeout(60000);
     const peopleResp = await page.request.get('http://localhost:8000/people');
     const people = await peopleResp.json();
     if (people.length === 0) { test.skip(); return; }
@@ -36,6 +37,7 @@ test.describe('Chat E2E', () => {
   });
 
   test('chat response is not empty', async ({ page }) => {
+    test.setTimeout(60000);
     const peopleResp = await page.request.get('http://localhost:8000/people');
     const people = await peopleResp.json();
     if (people.length === 0) { test.skip(); return; }
@@ -57,6 +59,7 @@ test.describe('Chat E2E', () => {
   });
 
   test('chat does not execute injected instructions', async ({ page }) => {
+    test.setTimeout(60000);
     const peopleResp = await page.request.get('http://localhost:8000/people');
     const people = await peopleResp.json();
     if (people.length === 0) { test.skip(); return; }

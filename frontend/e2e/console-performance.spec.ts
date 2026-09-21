@@ -90,6 +90,7 @@ test.describe('Browser Performance', () => {
   });
 
   test('chat API response (provider, best-effort)', async ({ page }) => {
+    test.setTimeout(60000);
     const peopleResp = await page.request.get('http://localhost:8000/people');
     const people = await peopleResp.json();
     if (people.length === 0) { test.skip(); return; }
