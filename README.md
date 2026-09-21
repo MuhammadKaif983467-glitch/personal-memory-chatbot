@@ -7,9 +7,9 @@ A personal-memory conversation AI that imports two-person chat history, builds p
 [![React 18](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://www.typescriptlang.org/)
 [![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-purple.svg)](https://openrouter.ai/)
-[![Tests](https://img.shields.io/badge/Backend%20Tests-260%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/Backend%20Tests-342%20passed-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
-[![Version](https://img.shields.io/badge/Version-3.2.0-brightgreen.svg)](#release-history)
+[![Version](https://img.shields.io/badge/Version-3.3.0--rc.1-brightgreen.svg)](#release-history)
 
 ---
 
@@ -268,21 +268,22 @@ npm run typecheck
 npm run build
 ```
 
-### Verified Baseline (v3.2.0)
+### Verified Baseline (v3.3.0-rc.1)
 
 | Check | Result |
 |-------|--------|
-| Backend tests | 260/260 PASS |
+| Backend tests | 342/342 PASS |
 | Frontend typecheck | PASS |
 | Frontend build | PASS (207.83 KB JS, gzip: 62.65 KB) |
-| Database integrity | PASS (0 NULL person_id, 0 orphans, 0 FK violations) |
-| Secret scan | PASS (no keys in source) |
+| Playwright E2E | 57 PASS, 4 BLOCKED (provider), 0 FAIL |
+| Database integrity | PASS (0 FK violations, FTS5 OK) |
+| Security audit | PASS (no keys in source, parameterized SQL) |
 
 Known limitations:
-- Browser E2E unavailable in certification environment
-- No automated backup/recovery
-- Retry jitter not implemented
-- Imported messages are immutable
+- 4 chat tests blocked by OpenRouter provider timeout (BLOCKED_EXTERNAL_DEPENDENCY)
+- Heuristic summarization (not AI-powered)
+- Relationship traversal bounded to 1 hop
+- Backup/summary/relationship API-only (no dedicated UI)
 
 ---
 
@@ -307,7 +308,7 @@ Full performance documentation: [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
 
 ## API
 
-The backend provides 51 REST endpoints across these areas:
+The backend provides 63 REST endpoints across these areas:
 
 | Area | Endpoints |
 |------|-----------|

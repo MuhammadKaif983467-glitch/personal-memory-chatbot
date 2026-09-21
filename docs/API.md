@@ -315,3 +315,106 @@ Deterministic conversation analysis (topics, cues).
 ### GET /voice/status
 
 Report STT/TTS capability status.
+
+---
+
+## Backup (V3.3)
+
+### POST /backup/create
+
+Create a timestamped database backup.
+
+**Response:**
+```json
+{
+  "valid": true,
+  "path": "data/backups/chatbot.db.backup.20260921_120000.bak",
+  "size": 15695872,
+  "schema_version": "V3.3.001",
+  "message_count": 1500,
+  "memory_count": 4600,
+  "conversation_count": 50,
+  "person_count": 10
+}
+```
+
+### GET /backup
+
+List all available backups.
+
+**Response:** Array of backup metadata objects.
+
+### POST /backup/validate
+
+Validate a backup file for integrity.
+
+**Request:**
+```json
+{
+  "backup_path": "data/backups/chatbot.db.backup.20260921_120000.bak"
+}
+```
+
+**Response:** Validation result with integrity_check, foreign_key_check, table counts.
+
+### POST /backup/restore
+
+Restore database from a backup. Creates an emergency backup before restoring.
+
+**Request:**
+```json
+{
+  "backup_path": "data/backups/chatbot.db.backup.20260921_120000.bak"
+}
+```
+
+## Summaries (V3.3)
+
+### GET /summaries/{conversation_id}
+
+Get the summary for a conversation.
+
+### POST /summaries/generate
+
+Generate or update a summary for a conversation using bounded heuristic summarization.
+
+**Request:**
+```json
+{
+  "conversation_id": 1
+}
+```
+
+### DELETE /summaries/{conversation_id}
+
+Delete the summary for a conversation.
+
+## Memory Relationships (V3.3)
+
+### POST /memory-relationships
+
+Create a relationship between two memories.
+
+**Request:**
+```json
+{
+  "source_memory_id": 1,
+  "target_memory_id": 2,
+  "relationship_type": "supports",
+  "project_id": 1
+}
+```
+
+Valid relationship types: `supports`, `contradicts`, `supersedes`, `related_to`, `derived_from`, `clarifies`.
+
+### GET /memory-relationships/{memory_id}
+
+Get all relationships for a memory.
+
+### GET /memory-relationships/project/{project_id}
+
+Get all relationships in a project.
+
+### DELETE /memory-relationships/{relationship_id}
+
+Delete a memory relationship.
