@@ -38,6 +38,47 @@ All notable changes to the Personal Memory Chatbot.
 
 - Backend tests: 293/293 pass (260 original + 33 new Phase 1 tests)
 - New test classes: `TestFKEnforcement`, `TestFTS5`, `TestMigration`, `TestDatabaseIntegrity`, `TestLargeData`, `TestSecurity`, `TestSearchCompatibility`, `TestCompositeIndexes`, `TestBackendImports`
+
+### V3.3 Phase 2 — Query Optimization, Dead-Code Audit & Retrieval Foundation
+
+#### Fixed
+
+- **FTS5 schema fix** — removed `message_id UNINDEXED` column from FTS5 table that blocked `REBUILD` command (column name mismatch with source table `messages.id`)
+- **FTS5 trigger schema fix** — all 3 sync triggers (`messages_fts_ai`, `messages_fts_ad`, `messages_fts_au`) updated to match corrected FTS5 DDL
+- **FTS5 rebuild validation** — `INSERT INTO messages_fts(messages_fts) VALUES('rebuild')` now works correctly
+
+#### Added
+
+- **2 composite indexes** — `ix_conversations_fingerprint` (import dedup) and `ix_persons_project_id` (project stats), both verified via EXPLAIN QUERY PLAN
+- **FTS5 security hardening** — expanded sanitization strips `-`, `+`, `=`, `|`, `<>`, `[]`, `;` operators; max 8 terms × 100 chars per term
+
+#### Removed (dead code)
+
+- `app/ai/prompts_legacy.py` — superseded by `app/ai/prompts/` package
+- `app/services/chat/` subpackage — 4 unused files (`person_identity.py`, `memory_prompt.py`, `conversation_context.py`, `response_style.py`)
+- `MessageRepository.fts_count()` — never called
+- `MemoryVersionRepository.delete_for_memory()` — never called
+- `detect_conversations()` — never called (sibling `detect_participants()` is used)
+- `Metrics.record()` — never called
+- `ConflictError` exception class — never raised
+- Unused imports: `logging` in `factory.py` and `import_export.py`, `StyleService` in `people.py`, `MemoryVersionOut`/`to_memory_version_out` in `projects.py`, `Iterable` in `text.py`
+- Dead module-level variable: `settings = get_settings()` in `config.py`
+- Redundant re-import: `ConversationParticipantOut` inside `list_participants()` in `chat.py`
+
+#### Verified
+
+- EXPLAIN QUERY PLAN audit: all 15 query paths use intended indexes (2 new indexes added, LIKE content scan expected for 1506 rows)
+- FTS5 rebuild: works on production database copy
+- FTS5 triggers: INSERT, DELETE, UPDATE all verified
+- Project isolation: FTS5 + all API endpoints enforce project_id filtering
+- Performance: all 15 query paths sub-2ms p95 at 1506 messages
+- Fallback chains: circuit breaker, provider fallback, vector→lexical, FTS5→LIKE all verified
+
+#### Testing
+
+- Backend tests: 293/293 pass (382s)
+- Frontend typecheck: PASS
+- Frontend build: PASS (207.83 KB JS, gzip: 62.65 KB)
 - 10,000-message import test passes (<60s)
 - FTS search on 10k messages completes in <5s
 

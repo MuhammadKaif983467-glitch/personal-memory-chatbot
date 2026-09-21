@@ -14,7 +14,6 @@ from app.schemas.person import MergePeopleRequest, MergeResult, PersonOut, Profi
 from app.services.identity_service import IdentityService
 from app.services.memory_service import MemoryService
 from app.services.profile_service import ProfileService
-from app.services.style_service import StyleService
 
 router = APIRouter()
 

@@ -324,6 +324,11 @@ class Database:
 
         Uses an external-content FTS5 table backed by the messages table.
         This avoids data duplication while enabling efficient full-text search.
+
+        Note: message_id is NOT included as an FTS5 column because the rebuild
+        command reads source columns by name, and the messages table uses 'id'
+        not 'message_id'. The rowid already maps to messages.id via
+        content_rowid=id.
         """
         with self.engine.connect() as conn:
             # Check if FTS5 table already exists
@@ -331,9 +336,22 @@ class Database:
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages_fts'"
             )).fetchone()
             if exists:
-                return
+                # Check if it has the broken message_id column (Phase 1 schema)
+                fts_sql = conn.execute(text(
+                    "SELECT sql FROM sqlite_master WHERE name='messages_fts'"
+                )).fetchone()
+                if fts_sql and 'message_id' in fts_sql[0]:
+                    # Drop and recreate with corrected schema
+                    conn.execute(text("DROP TABLE IF EXISTS messages_fts"))
+                    conn.commit()
+                    # Also drop old triggers
+                    for trigger in ['messages_fts_ai', 'messages_fts_ad', 'messages_fts_au']:
+                        conn.execute(text(f"DROP TRIGGER IF EXISTS {trigger}"))
+                    conn.commit()
+                else:
+                    return
 
-            # Create external-content FTS5 table
+            # Create external-content FTS5 table (without message_id)
             conn.execute(text("""
                 CREATE VIRTUAL TABLE messages_fts USING fts5(
                     content,
@@ -341,7 +359,6 @@ class Database:
                     conversation_id UNINDEXED,
                     person_id UNINDEXED,
                     timestamp UNINDEXED,
-                    message_id UNINDEXED,
                     content=messages,
                     content_rowid=id,
                     tokenize='unicode61 remove_diacritics 2'
@@ -350,8 +367,8 @@ class Database:
 
             # Populate with existing messages
             conn.execute(text("""
-                INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp, message_id)
-                SELECT id, content, sender, conversation_id, person_id, timestamp, id FROM messages
+                INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp)
+                SELECT id, content, sender, conversation_id, person_id, timestamp FROM messages
             """))
             conn.commit()
 
@@ -359,9 +376,22 @@ class Database:
         """Create triggers to keep FTS5 synchronized with the messages table.
 
         Handles INSERT, UPDATE, and DELETE operations on messages.
+        Triggers are recreated if they reference the old 'message_id' column.
         """
         with self.engine.connect() as conn:
-            # Check if triggers already exist
+            # Check if triggers already exist and if they use the old schema
+            existing = conn.execute(text(
+                "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND name LIKE 'messages_fts_%'"
+            )).fetchall()
+            existing_dict = {row[0]: row[1] for row in existing}
+
+            # Drop triggers that reference old message_id column
+            for name, sql in existing_dict.items():
+                if sql and 'message_id' in sql:
+                    conn.execute(text(f"DROP TRIGGER IF EXISTS {name}"))
+            conn.commit()
+
+            # Re-check after dropping
             existing = conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'messages_fts_%'"
             )).fetchall()
@@ -370,26 +400,26 @@ class Database:
             if "messages_fts_ai" not in existing_names:
                 conn.execute(text("""
                     CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
-                        INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp, message_id)
-                        VALUES (new.id, new.content, new.sender, new.conversation_id, new.person_id, new.timestamp, new.id);
+                        INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp)
+                        VALUES (new.id, new.content, new.sender, new.conversation_id, new.person_id, new.timestamp);
                     END
                 """))
 
             if "messages_fts_ad" not in existing_names:
                 conn.execute(text("""
                     CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages BEGIN
-                        INSERT INTO messages_fts (messages_fts, rowid, content, sender, conversation_id, person_id, timestamp, message_id)
-                        VALUES ('delete', old.id, old.content, old.sender, old.conversation_id, old.person_id, old.timestamp, old.id);
+                        INSERT INTO messages_fts (messages_fts, rowid, content, sender, conversation_id, person_id, timestamp)
+                        VALUES ('delete', old.id, old.content, old.sender, old.conversation_id, old.person_id, old.timestamp);
                     END
                 """))
 
             if "messages_fts_au" not in existing_names:
                 conn.execute(text("""
                     CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
-                        INSERT INTO messages_fts (messages_fts, rowid, content, sender, conversation_id, person_id, timestamp, message_id)
-                        VALUES ('delete', old.id, old.content, old.sender, old.conversation_id, old.person_id, old.timestamp, old.id);
-                        INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp, message_id)
-                        VALUES (new.id, new.content, new.sender, new.conversation_id, new.person_id, new.timestamp, new.id);
+                        INSERT INTO messages_fts (messages_fts, rowid, content, sender, conversation_id, person_id, timestamp)
+                        VALUES ('delete', old.id, old.content, old.sender, old.conversation_id, old.person_id, old.timestamp);
+                        INSERT INTO messages_fts (rowid, content, sender, conversation_id, person_id, timestamp)
+                        VALUES (new.id, new.content, new.sender, new.conversation_id, new.person_id, new.timestamp);
                     END
                 """))
             conn.commit()
@@ -421,6 +451,10 @@ class Database:
             ("ix_cp_conv_person", "conversation_participants", "(conversation_id, person_id)"),
             # memory_versions: memory_id+revision (version history)
             ("ix_mv_memory_revision", "memory_versions", "(memory_id, revision)"),
+            # conversations: fingerprint (import dedup, EXPLAIN QUERY PLAN shows SCAN)
+            ("ix_conversations_fingerprint", "conversations", "(fingerprint)"),
+            # persons: project_id (project stats, EXPLAIN QUERY PLAN shows SCAN)
+            ("ix_persons_project_id", "persons", "(project_id)"),
         ]
 
         with self.engine.connect() as conn:

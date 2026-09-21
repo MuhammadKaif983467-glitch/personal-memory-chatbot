@@ -75,8 +75,3 @@ class ProviderError(ChatbotError):
         data["reason"] = self.reason
         data["retryable"] = self.retryable
         return data
-
-
-class ConflictError(ChatbotError):
-    status_code = 409
-    code = "conflict"

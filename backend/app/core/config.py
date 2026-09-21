@@ -272,6 +272,3 @@ def get_settings(overrides: Optional[dict] = None) -> Settings:
     if overrides:
         return Settings(**overrides)
     return Settings()
-
-
-settings = get_settings()

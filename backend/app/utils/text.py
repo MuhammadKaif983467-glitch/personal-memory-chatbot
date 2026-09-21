@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Iterable, Sequence
+from typing import Sequence
 
 # ---- Emoji / unicode helpers ----
 EMOJI_PATTERN = re.compile(

@@ -144,7 +144,6 @@ def delete_conversation(
 @router.get("/conversations/{conversation_id}/participants")
 def list_participants(conversation_id: int, db: Session = Depends(get_db)):
     """List participants for a conversation."""
-    from app.schemas.message import ConversationParticipantOut
     conv = ConversationRepository(db).get(conversation_id)
     if conv is None:
         raise NotFoundError("Conversation not found.")

@@ -7,7 +7,6 @@ with isolated settings so they never touch the development database.
 
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
 from fastapi import FastAPI, Request

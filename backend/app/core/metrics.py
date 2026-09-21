@@ -20,10 +20,6 @@ class Metrics:
         with self._lock:
             self._counts[key] = self._counts.get(key, 0) + delta
 
-    def record(self, key: str, ms: float) -> None:
-        with self._lock:
-            self._counts[key] = ms
-
     def snapshot(self) -> dict:
         with self._lock:
             counts = dict(self._counts)

@@ -435,10 +435,13 @@ class MessageRepository:
         unexpected behavior or injection.
         """
         import re as _re
-        # Remove FTS5 special operators
-        sanitized = _re.sub(r'["*(){}^~\\:]', ' ', query_text)
+        # Remove FTS5 special operators and syntax characters
+        sanitized = _re.sub(r'["*(){}^~\\:;\[\]<>\-+=|]', ' ', query_text)
+        # Remove FTS5 boolean/proximity keywords
         sanitized = _re.sub(r'\b(AND|OR|NOT|NEAR)\b', ' ', sanitized, flags=_re.IGNORECASE)
-        return sanitized.strip()
+        # Collapse whitespace
+        sanitized = _re.sub(r'\s+', ' ', sanitized).strip()
+        return sanitized
 
     def fts_search(
         self,
@@ -461,7 +464,10 @@ class MessageRepository:
         if not terms:
             return []
 
-        fts_expr = " OR ".join(f'"{t}"' for t in terms[:8])
+        # Limit term count and individual term length to prevent abuse
+        terms = [t[:100] for t in terms[:8]]
+
+        fts_expr = " OR ".join(f'"{t}"' for t in terms)
 
         try:
             # Build raw SQL with proper parameterization for FTS5 MATCH
@@ -498,21 +504,6 @@ class MessageRepository:
                 person_id=person_id,
                 limit=limit,
             )
-
-    def fts_count(self) -> int:
-        """Return the number of rows in the FTS5 index."""
-        try:
-            # External-content FTS5 tables don't support plain count(*).
-            # Use MATCH with a broad term or integrity check.
-            result = self.session.execute(text(
-                "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH '\"\"'"
-            )).scalar()
-            if result is not None:
-                return result
-            # Fallback: count from messages table (FTS should be 1:1)
-            return self.session.scalar(text("SELECT count(*) FROM messages")) or 0
-        except Exception:
-            return 0
 
     def fts_rebuild(self) -> int:
         """Rebuild the FTS5 index from the messages table. Returns row count."""
@@ -830,15 +821,6 @@ class MemoryVersionRepository:
             )
             or 0
         )
-
-    def delete_for_memory(self, memory_id: int) -> int:
-        deleted = (
-            self.session.execute(update(MemoryVersion).where(MemoryVersion.memory_id == memory_id).values(
-                status=VERSION_STATUS_ARCHIVED, note="memory deleted with project"
-            ))
-        ).rowcount
-        self.session.flush()
-        return deleted or 0
 
 
 class StatsRepository:

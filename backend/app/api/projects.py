@@ -20,7 +20,7 @@ from app.database.repositories import (
     PersonRepository,
     ProjectRepository,
 )
-from app.schemas.memory import MemoryOut, MemoryVersionOut, to_memory_out, to_memory_version_out
+from app.schemas.memory import MemoryOut, to_memory_out
 from app.schemas.message import ConversationOut, to_conversation_out
 from app.schemas.person import PersonOut, to_person_out
 from app.schemas.project import ProjectCreate, ProjectDeleteResult, ProjectDetailOut, ProjectOut, ProjectUpdate
