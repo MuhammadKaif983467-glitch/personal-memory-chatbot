@@ -2,7 +2,9 @@
 
 All notable changes to the Personal Memory Chatbot.
 
-## [Unreleased]
+## [3.3.0] - 2026-09-21
+
+Production release — database hardening, FTS5, backup/recovery, memory relationships, summaries, Playwright E2E.
 
 ### V3.3 Phase 1 — Database Hardening & FTS Foundation
 

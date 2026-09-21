@@ -9,7 +9,7 @@ A personal-memory conversation AI that imports two-person chat history, builds p
 [![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-purple.svg)](https://openrouter.ai/)
 [![Tests](https://img.shields.io/badge/Backend%20Tests-342%20passed-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
-[![Version](https://img.shields.io/badge/Version-3.3.0--rc.1-brightgreen.svg)](#release-history)
+[![Version](https://img.shields.io/badge/Version-3.3.0-brightgreen.svg)](#release-history)
 
 ---
 
@@ -268,7 +268,7 @@ npm run typecheck
 npm run build
 ```
 
-### Verified Baseline (v3.3.0-rc.1)
+### Verified Baseline (v3.3.0)
 
 | Check | Result |
 |-------|--------|
