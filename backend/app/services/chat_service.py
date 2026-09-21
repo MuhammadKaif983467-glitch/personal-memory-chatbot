@@ -125,7 +125,10 @@ class ChatService:
 
         # 2. Retrieve relevant memories.
         self.metrics.inc("retrieval_count")
-        retrieved = self.retrieval.retrieve(session, request.message, person_id=person.id)
+        retrieved = self.retrieval.retrieve(
+            session, request.message, person_id=person.id,
+            conversation_id=conversation.id,
+        )
 
         # 3. Recent conversation for context.
         recent = message_repo.recent_by_conversation(conversation.id, self.settings.recent_conversation_messages)
@@ -273,7 +276,10 @@ class ChatService:
             )
 
         # Retrieve + rank (read-only).
-        retrieved = self.retrieval.retrieve(session, request.message, person_id=person.id)
+        retrieved = self.retrieval.retrieve(
+            session, request.message, person_id=person.id,
+            conversation_id=request.conversation_id,
+        )
 
         # Recent conversation is optional and only read when a valid
         # conversation for this person is supplied; nothing is created.

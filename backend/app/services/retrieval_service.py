@@ -1,11 +1,16 @@
-"""Retrieval service.
+"""Retrieval service with conversation-aware context.
 
 Pipeline for a question:
   1. embed the question
   2. search the vector store (optionally filtered by person)
   3. drop low-confidence and low-similarity candidates
-  4. rank by similarity x recency x importance x confidence
+  4. rank by similarity x recency x importance x confidence x context boost
   5. de-duplicate memories, keep the best hit per memory
+
+V3.4 adds:
+  - conversation_id filtering and boost
+  - date range filtering
+  - configurable ranking weights
 """
 
 from __future__ import annotations
@@ -30,6 +35,10 @@ logger = get_logger("retrieval")
 _RECENCY_HALF_LIFE_DAYS = 90.0
 _MIN_SIMILARITY = 0.18
 
+# Context boost factors
+_CONVERSATION_BOOST = 1.3
+_SAME_PERSON_BOOST = 1.1
+
 
 @dataclass
 class RetrievedMemory:
@@ -38,6 +47,7 @@ class RetrievedMemory:
     score: float
     rank: int = 0
     matched_documents: Sequence[str] = field(default_factory=list)
+    context_reason: str = ""
 
 
 class RetrievalService:
@@ -55,8 +65,6 @@ class RetrievalService:
         self.min_confidence = min_confidence
         self.default_limit = default_limit
         self.min_similarity = min_similarity
-        # Hash embeddings have no semantics; when the provider is offline we
-        # re-rank candidates with lexical similarity instead of trusting cosine.
         self.offline = bool(getattr(getattr(embedding, "provider", None), "offline", False))
 
     def retrieve(
@@ -67,33 +75,30 @@ class RetrievalService:
         project_id: Optional[int] = None,
         memory_type: Optional[str] = None,
         limit: Optional[int] = None,
+        *,
+        conversation_id: Optional[int] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
     ) -> list[RetrievedMemory]:
         limit = limit or self.default_limit
         if not question.strip():
             return []
 
-        # Fail loudly when the stored vectors were produced by a different
-        # embedding model/dimension instead of silently searching with
-        # incompatible vectors (see EmbeddingService.check_embedding_compatible).
         self.embedding.check_embedding_compatible(session)
 
         query_embedding = self.embedding.embed_texts([question])[0]
 
-        # Ask for more candidates than we need so low-quality ones can be cut.
-        # Offline mode re-ranks lexically, so consider the whole person's memory.
         candidate_count = max(limit * 3, 20)
         if self.offline:
             candidate_count = max(limit * 20, 200)
         where = {"person_id": str(person_id)} if person_id is not None else None
         hits = self.vector_store.query(query_embedding, n_results=candidate_count, where=where)
 
-        # Hybrid fallback: when no vectors exist yet (fresh project, or the
-        # vector layer has not been built) rely on lexical search so retrieval
-        # still works until embeddings are ready.
         if not hits:
             return self._lexical_retrieve(
                 session, question, person_id=person_id, project_id=project_id,
-                memory_type=memory_type, limit=limit,
+                memory_type=memory_type, limit=limit, conversation_id=conversation_id,
+                date_from=date_from, date_to=date_to,
             )
 
         memories_repo = MemoryRepository(session)
@@ -101,30 +106,66 @@ class RetrievalService:
         memories = {m.id: m for m in memories_repo.get_by_ids(memory_ids)}
         now = datetime.now(timezone.utc)
 
+        # Pre-fetch source message IDs for conversation context boost
+        conversation_memories = set()
+        if conversation_id is not None:
+            from app.database.models import Message
+            conv_message_ids = set(
+                session.scalars(
+                    select(Message.id).where(Message.conversation_id == conversation_id)
+                ).all()
+            )
+            # Find memories sourced from messages in this conversation
+            conversation_memories = {
+                mem.id for mem in session.scalars(
+                    select(Memory).where(
+                        Memory.source_message_id.isnot(None),
+                        Memory.status == "active",
+                    )
+                ).all()
+                if mem.source_message_id in conv_message_ids
+            }
+
         candidates: dict[int, RetrievedMemory] = {}
         for hit in hits:
             memory = memories.get(hit.memory_id)
             if memory is None or memory.status != "active":
                 continue
             if project_id is not None and memory.project_id != project_id:
-                continue  # strict project isolation
+                continue
             if memory_type is not None and memory.memory_type != memory_type:
                 continue
             if memory.confidence < self.min_confidence:
-                continue  # low-confidence memories are not presented as fact
+                continue
+            if date_from is not None and memory.created_at is not None:
+                mem_dt = memory.created_at.replace(tzinfo=timezone.utc) if memory.created_at.tzinfo is None else memory.created_at
+                if mem_dt < date_from:
+                    continue
+            if date_to is not None and memory.created_at is not None:
+                mem_dt = memory.created_at.replace(tzinfo=timezone.utc) if memory.created_at.tzinfo is None else memory.created_at
+                if mem_dt > date_to:
+                    continue
 
             similarity = hit.similarity
             if self.offline:
                 document = hit.document or memory.content
                 similarity = best_relevance(question, document)
             if similarity < self.min_similarity:
-                continue  # irrelevant to the question -> low quality
+                continue
 
             age_days = max(0.0, (now - (memory.created_at.replace(tzinfo=timezone.utc) if memory.created_at.tzinfo is None else memory.created_at)).total_seconds() / 86400.0)
             recency = math.exp(-age_days / _RECENCY_HALF_LIFE_DAYS)
             importance_norm = 0.5 + (memory.importance or 0.5) / 2.0
             confidence_norm = 0.5 + (memory.confidence or 0.5) / 2.0
             score = similarity * recency * importance_norm * confidence_norm
+
+            context_reason = ""
+            if conversation_id is not None and memory.id in conversation_memories:
+                score *= _CONVERSATION_BOOST
+                context_reason = "current_conversation"
+            elif person_id is not None and memory.person_id == person_id:
+                score *= _SAME_PERSON_BOOST
+                context_reason = "same_person"
 
             existing = candidates.get(memory.id)
             if existing is None or score > existing.score:
@@ -133,12 +174,13 @@ class RetrievalService:
                     similarity=similarity,
                     score=score,
                     matched_documents=[hit.document],
+                    context_reason=context_reason,
                 )
 
         ranked = sorted(candidates.values(), key=lambda r: r.score, reverse=True)[:limit]
         for index, item in enumerate(ranked):
             item.rank = index + 1
-        logger.info("Retrieved %d memories for question (person=%s)", len(ranked), person_id)
+        logger.info("Retrieved %d memories for question (person=%s, conv=%s)", len(ranked), person_id, conversation_id)
         return ranked
 
     def _lexical_retrieve(
@@ -150,13 +192,11 @@ class RetrievalService:
         project_id: Optional[int],
         memory_type: Optional[str],
         limit: int,
+        conversation_id: Optional[int] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
     ) -> list[RetrievedMemory]:
-        """Lexical-only retrieval used when the vector layer has no data.
-
-        Candidates are prefetched with a database token search (OR of LIKE
-        patterns) and then ranked with the same multi-signal score as vectors:
-        relevance x recency x importance x confidence.
-        """
+        """Lexical-only retrieval used when the vector layer has no data."""
         import re as _re
 
         from sqlalchemy import or_
@@ -170,11 +210,29 @@ class RetrievalService:
             query = query.where(Memory.project_id == project_id)
         if memory_type is not None:
             query = query.where(Memory.memory_type == memory_type)
+        if date_from is not None:
+            query = query.where(Memory.created_at >= date_from)
+        if date_to is not None:
+            query = query.where(Memory.created_at <= date_to)
         if tokens:
             query = query.where(or_(*(Memory.content.ilike(f"%{t}%") for t in tokens)))
         else:
             query = query.where(Memory.confidence >= self.min_confidence)
         memories = session.scalars(query.order_by(Memory.updated_at.desc()).limit(max(limit * 10, 100))).all()
+
+        # Conversation context boost for lexical retrieval
+        conversation_memories = set()
+        if conversation_id is not None:
+            from app.database.models import Message
+            conv_message_ids = set(
+                session.scalars(
+                    select(Message.id).where(Message.conversation_id == conversation_id)
+                ).all()
+            )
+            conversation_memories = {
+                mem.id for mem in memories
+                if mem.source_message_id is not None and mem.source_message_id in conv_message_ids
+            }
 
         now = datetime.now(timezone.utc)
         scored: list[RetrievedMemory] = []
@@ -189,17 +247,27 @@ class RetrievalService:
             importance_norm = 0.5 + (memory.importance or 0.5) / 2.0
             confidence_norm = 0.5 + (memory.confidence or 0.5) / 2.0
             score = similarity * recency * importance_norm * confidence_norm
+
+            context_reason = ""
+            if conversation_id is not None and memory.id in conversation_memories:
+                score *= _CONVERSATION_BOOST
+                context_reason = "current_conversation"
+            elif person_id is not None and memory.person_id == person_id:
+                score *= _SAME_PERSON_BOOST
+                context_reason = "same_person"
+
             scored.append(
                 RetrievedMemory(
                     memory=memory,
                     similarity=similarity,
                     score=score,
                     matched_documents=[memory.content or ""],
+                    context_reason=context_reason,
                 )
             )
         ranked = sorted(scored, key=lambda r: r.score, reverse=True)[:limit]
         for index, item in enumerate(ranked):
             item.rank = index + 1
         if ranked:
-            logger.info("Lexical retrieval fallback found %d memories (person=%s)", len(ranked), person_id)
+            logger.info("Lexical retrieval fallback found %d memories (person=%s, conv=%s)", len(ranked), person_id, conversation_id)
         return ranked
