@@ -837,3 +837,145 @@ class StatsRepository:
             "memories": self.session.scalar(select(func.count(Memory.id)).where(Memory.status == "active")) or 0,
             "embeddings": self.session.scalar(select(func.count(EmbeddingRecord.id))) or 0,
         }
+
+
+class ConversationSummaryRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_for_conversation(self, conversation_id: int) -> Optional["ConversationSummary"]:
+        from app.database.models import ConversationSummary
+        return self.session.scalar(
+            select(ConversationSummary).where(
+                ConversationSummary.conversation_id == conversation_id
+            ).order_by(ConversationSummary.version.desc()).limit(1)
+        )
+
+    def upsert(self, conversation_id: int, *, summary: str, project_id: Optional[int] = None,
+               message_start_id: Optional[int] = None, message_end_id: Optional[int] = None,
+               message_count: int = 0, model: str = "") -> "ConversationSummary":
+        from app.database.models import ConversationSummary
+        existing = self.get_for_conversation(conversation_id)
+        if existing:
+            existing.summary = summary
+            existing.message_start_id = message_start_id
+            existing.message_end_id = message_end_id
+            existing.message_count = message_count
+            existing.model = model
+            existing.version += 1
+            return existing
+        obj = ConversationSummary(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            summary=summary,
+            message_start_id=message_start_id,
+            message_end_id=message_end_id,
+            message_count=message_count,
+            model=model,
+        )
+        self.session.add(obj)
+        self.session.flush()
+        return obj
+
+    def list_all(self, project_id: Optional[int] = None) -> list["ConversationSummary"]:
+        from app.database.models import ConversationSummary
+        q = select(ConversationSummary)
+        if project_id is not None:
+            q = q.where(ConversationSummary.project_id == project_id)
+        return list(self.session.scalars(q).all())
+
+    def delete_for_conversation(self, conversation_id: int) -> int:
+        from app.database.models import ConversationSummary
+        result = self.session.execute(
+            delete(ConversationSummary).where(ConversationSummary.conversation_id == conversation_id)
+        )
+        return result.rowcount
+
+
+class MemoryRelationshipRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(self, *, project_id: Optional[int], source_memory_id: int,
+               target_memory_id: int, relationship_type: str,
+               confidence: float = 0.5, note: str = "") -> "MemoryRelationship":
+        from app.database.models import MemoryRelationship, VALID_RELATIONSHIP_TYPES
+        if relationship_type not in VALID_RELATIONSHIP_TYPES:
+            raise ValueError(f"Invalid relationship type: {relationship_type}")
+        if source_memory_id == target_memory_id:
+            raise ValueError("Cannot create self-relationship")
+
+        # Verify both memories exist and are in the same project
+        src_mem = self.session.get(Memory, source_memory_id)
+        tgt_mem = self.session.get(Memory, target_memory_id)
+        if src_mem is None:
+            raise ValueError(f"Source memory {source_memory_id} not found")
+        if tgt_mem is None:
+            raise ValueError(f"Target memory {target_memory_id} not found")
+        if src_mem.project_id != tgt_mem.project_id:
+            raise ValueError("Cannot create cross-project relationship")
+        if project_id is not None and src_mem.project_id != project_id:
+            raise ValueError("Source memory does not belong to specified project")
+
+        # Check for duplicate
+        existing = self.session.scalar(
+            select(MemoryRelationship).where(
+                MemoryRelationship.source_memory_id == source_memory_id,
+                MemoryRelationship.target_memory_id == target_memory_id,
+                MemoryRelationship.relationship_type == relationship_type,
+            )
+        )
+        if existing:
+            return existing
+
+        obj = MemoryRelationship(
+            project_id=project_id or src_mem.project_id,
+            source_memory_id=source_memory_id,
+            target_memory_id=target_memory_id,
+            relationship_type=relationship_type,
+            confidence=confidence,
+            note=note,
+        )
+        self.session.add(obj)
+        self.session.flush()
+        return obj
+
+    def get_for_memory(self, memory_id: int) -> list["MemoryRelationship"]:
+        from app.database.models import MemoryRelationship
+        return list(self.session.scalars(
+            select(MemoryRelationship).where(
+                or_(
+                    MemoryRelationship.source_memory_id == memory_id,
+                    MemoryRelationship.target_memory_id == memory_id,
+                )
+            )
+        ).all())
+
+    def get_related(self, memory_id: int, *, relationship_type: Optional[str] = None) -> list["MemoryRelationship"]:
+        """Get all relationships where this memory is the source."""
+        from app.database.models import MemoryRelationship
+        q = select(MemoryRelationship).where(MemoryRelationship.source_memory_id == memory_id)
+        if relationship_type:
+            q = q.where(MemoryRelationship.relationship_type == relationship_type)
+        return list(self.session.scalars(q).all())
+
+    def get_by_project(self, project_id: int) -> list["MemoryRelationship"]:
+        from app.database.models import MemoryRelationship
+        return list(self.session.scalars(
+            select(MemoryRelationship).where(MemoryRelationship.project_id == project_id)
+        ).all())
+
+    def delete(self, relationship_id: int) -> bool:
+        from app.database.models import MemoryRelationship
+        obj = self.session.get(MemoryRelationship, relationship_id)
+        if obj is None:
+            return False
+        self.session.delete(obj)
+        return True
+
+    def delete_for_project(self, project_id: int) -> int:
+        from app.database.models import MemoryRelationship
+        result = self.session.execute(
+            delete(MemoryRelationship).where(MemoryRelationship.project_id == project_id)
+        )
+        return result.rowcount

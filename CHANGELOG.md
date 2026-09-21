@@ -82,6 +82,42 @@ All notable changes to the Personal Memory Chatbot.
 - 10,000-message import test passes (<60s)
 - FTS search on 10k messages completes in <5s
 
+### V3.3 Phase 3 — Backup, Recovery, Summarization & Memory Relationships
+
+#### Added
+
+- **Backup service** — atomic backups using SQLite's online backup API, timestamped naming, integrity-checked
+- **Backup validation** — comprehensive checks: file exists, readable, opens as SQLite, integrity_check, foreign_key_check, required tables, row counts
+- **Backup restore** — guarded operation with emergency backup creation, in-place restore via SQLite backup API, validation after restore
+- **Backup API** — `POST /backup/create`, `GET /backup`, `POST /backup/validate`, `POST /backup/restore` with path traversal protection
+- **Conversation summaries** — `ConversationSummary` model with bounded heuristic summarization, rolling update strategy
+- **Summarization API** — `GET /summaries/{id}`, `POST /summaries/generate`, `DELETE /summaries/{id}`
+- **Summarization safety** — prompt injection defense strips system-instruction-like content before summarization
+- **Memory relationships** — `MemoryRelationship` model with 6 types: supports, contradicts, supersedes, related_to, derived_from, clarifies
+- **Memory relationship API** — `POST /memory-relationships`, `GET /memory-relationships/{id}`, `GET /memory-relationships/project/{id}`, `DELETE /memory-relationships/{id}`
+- **Project isolation** — cross-project relationships rejected at service layer, all queries scoped by project_id
+- **Contradiction handling** — preserves original memory, creates supersedes relationship (never silently deletes)
+- **49 new tests** — backup creation/validation/restore/recovery, summarization, memory relationships, contradiction handling, model tests
+
+#### Changed
+
+- New ORM tables: `conversation_summaries`, `memory_relationships`
+- Factory registers 3 new routers: backup, summaries, memory_relationships
+
+#### Security
+
+- Backup path traversal protection: paths validated to stay within backup directory
+- Summarization strips prompt injection patterns from conversation content
+- No secrets exposed in backup metadata
+
+#### Testing
+
+- Backend tests: 342/342 pass (293 original + 49 new Phase 3 tests)
+- Frontend typecheck: PASS
+- Frontend build: PASS (207.83 KB JS, gzip: 62.65 KB)
+- Database integrity: ok, 0 FK violations
+- New tables created: conversation_summaries, memory_relationships
+
 ---
 
 ## [3.2.0] - 2026-09-21

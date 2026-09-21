@@ -222,3 +222,71 @@ class MemoryVersion(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     actor: Mapped[str] = mapped_column(String(30), default="system")  # import|analyze|chat|correction|edit|manual
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ConversationSummary(Base):
+    """Derived summary of a conversation.
+
+    Summaries are bounded summaries of conversation content. They never
+    replace original messages. Summaries are regenerated incrementally
+    when new messages arrive past a configurable threshold.
+    """
+
+    __tablename__ = "conversation_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    message_start_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    message_end_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    model: Mapped[str] = mapped_column(String(100), default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# Relationship type constants for memory_relationships
+RELATIONSHIP_SUPPORTS = "supports"
+RELATIONSHIP_CONTRADICTS = "contradicts"
+RELATIONSHIP_SUPERSEDES = "supersedes"
+RELATIONSHIP_RELATED_TO = "related_to"
+RELATIONSHIP_DERIVED_FROM = "derived_from"
+RELATIONSHIP_CLARIFIES = "clarifies"
+
+VALID_RELATIONSHIP_TYPES = {
+    RELATIONSHIP_SUPPORTS,
+    RELATIONSHIP_CONTRADICTS,
+    RELATIONSHIP_SUPERSEDES,
+    RELATIONSHIP_RELATED_TO,
+    RELATIONSHIP_DERIVED_FROM,
+    RELATIONSHIP_CLARIFIES,
+}
+
+
+class MemoryRelationship(Base):
+    """Directed relationship between two memories in the same project.
+
+    Relationships are project-scoped and validated. Cross-project
+    relationships are rejected at the service layer.
+
+    Directionality:
+    - supports: source supports/targets target
+    - contradicts: source contradicts target
+    - supersedes: source replaces target as current truth
+    - related_to: symmetric (either direction is fine)
+    - derived_from: source was derived from target
+    - clarifies: source clarifies/extends target
+    """
+
+    __tablename__ = "memory_relationships"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_memory_id: Mapped[int] = mapped_column(ForeignKey("memories.id", ondelete="CASCADE"), index=True)
+    target_memory_id: Mapped[int] = mapped_column(ForeignKey("memories.id", ondelete="CASCADE"), index=True)
+    relationship_type: Mapped[str] = mapped_column(String(50), index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

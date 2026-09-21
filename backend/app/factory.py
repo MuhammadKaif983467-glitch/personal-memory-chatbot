@@ -22,6 +22,9 @@ from app.api import projects as projects_router
 from app.api import search as search_router
 from app.api import settings as settings_router
 from app.api import voice as voice_router
+from app.api import backup as backup_router
+from app.api import summaries as summaries_router
+from app.api import memory_relationships as memory_rel_router
 from app.api.deps import AppContext
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ChatbotError
@@ -81,6 +84,9 @@ def create_app(settings_override: Optional[dict] = None) -> FastAPI:
     app.include_router(search_router.router)
     app.include_router(settings_router.router)
     app.include_router(voice_router.router)
+    app.include_router(backup_router.router)
+    app.include_router(summaries_router.router)
+    app.include_router(memory_rel_router.router)
 
     @app.exception_handler(ChatbotError)
     async def chatbot_error_handler(request: Request, exc: ChatbotError) -> JSONResponse:
