@@ -76,6 +76,9 @@ def create_app(settings_override: Optional[dict] = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    from app.middleware.security import SecurityMiddleware
+    app.add_middleware(SecurityMiddleware)
+
     app.include_router(chat_router.router)
     app.include_router(people_router.router)
     app.include_router(memories_router.router)
