@@ -29,6 +29,7 @@ export default function MemoryShell({ persons, selectedPersonId, onSelectPerson 
   const [versionCache, setVersionCache] = useState<Record<number, MemoryVersion[]>>({})
   const [sourceCache, setSourceCache] = useState<Record<number, MessageRecord>>({})
   const [expandedSource, setExpandedSource] = useState<Set<number>>(new Set())
+  const [expandedRelationships, setExpandedRelationships] = useState<Set<number>>(new Set())
   const [showFilters, setShowFilters] = useState(false)
 
   const flash = (msg: string) => { setNotice(msg); setTimeout(() => setNotice(null), 4000) }
@@ -96,6 +97,12 @@ export default function MemoryShell({ persons, selectedPersonId, onSelectPerson 
     }
   }
 
+  const toggleRelationships = (id: number) => {
+    const next = new Set(expandedRelationships)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    setExpandedRelationships(next)
+  }
+
   const personName = (id: number) => persons.find(p => p.id === id)?.name ?? `Person #${id}`
   const hasActiveFilters = !!(filterType || filterStatus !== 'active' || searchQuery)
 
@@ -122,7 +129,7 @@ export default function MemoryShell({ persons, selectedPersonId, onSelectPerson 
       {!loading && memories.length === 0 && <MemoryEmptyState />}
       <div className="memory-list">
         {memories.map(m => (
-          <MemoryCard key={m.id} memory={m} editingId={editingId} correctingId={correctingId} editContent={editContent} correctContent={correctContent} expandedVersions={expandedVersions} versionCache={versionCache} expandedSource={expandedSource} sourceCache={sourceCache} onEditContentChange={setEditContent} onCorrectContentChange={setCorrectContent} onSaveEdit={handleSaveEdit} onSaveCorrect={handleSaveCorrect} onCancelEdit={() => { setEditingId(null); setEditContent('') }} onCancelCorrect={() => { setCorrectingId(null); setCorrectContent('') }} onStartEdit={(id, c) => { setEditingId(id); setEditContent(c) }} onStartCorrect={(id, c) => { setCorrectingId(id); setCorrectContent(c) }} onToggleVersions={toggleVersions} onToggleSource={toggleSource} onDelete={handleDelete} personName={personName} />
+          <MemoryCard key={m.id} memory={m} editingId={editingId} correctingId={correctingId} editContent={editContent} correctContent={correctContent} expandedVersions={expandedVersions} versionCache={versionCache} expandedSource={expandedSource} sourceCache={sourceCache} expandedRelationships={expandedRelationships} onEditContentChange={setEditContent} onCorrectContentChange={setCorrectContent} onSaveEdit={handleSaveEdit} onSaveCorrect={handleSaveCorrect} onCancelEdit={() => { setEditingId(null); setEditContent('') }} onCancelCorrect={() => { setCorrectingId(null); setCorrectContent('') }} onStartEdit={(id, c) => { setEditingId(id); setEditContent(c) }} onStartCorrect={(id, c) => { setCorrectingId(id); setCorrectContent(c) }} onToggleVersions={toggleVersions} onToggleSource={toggleSource} onDelete={handleDelete} onToggleRelationships={toggleRelationships} personName={personName} />
         ))}
       </div>
     </div>

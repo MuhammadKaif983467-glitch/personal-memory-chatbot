@@ -355,6 +355,44 @@ type SearchResponse = {
   total: number
 }
 
+type BackupInfo = {
+  valid: boolean
+  path: string
+  size: number
+  schema_version: string
+  message_count: number
+  memory_count: number
+  conversation_count?: number
+  person_count?: number
+  created_at: string
+  errors: string[]
+  warnings: string[]
+}
+
+type SummaryInfo = {
+  conversation_id: number
+  summary: string
+  message_count: number
+  message_start_id?: number | null
+  message_end_id?: number | null
+  version: number
+  model: string
+  created_at: string
+  updated_at: string
+}
+
+type MemoryRelationship = {
+  id: number
+  source_memory_id: number
+  target_memory_id: number
+  relationship_type: string
+  confidence: number
+  project_id: number
+  created_at: string
+  source_content?: string
+  target_content?: string
+}
+
 export type {
   Person,
   ProjectParticipant,
@@ -391,4 +429,7 @@ export type {
   SearchMemoryHit,
   SearchConversationHit,
   SearchResponse,
+  BackupInfo,
+  SummaryInfo,
+  MemoryRelationship,
 }

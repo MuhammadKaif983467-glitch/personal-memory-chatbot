@@ -6,6 +6,7 @@ import { DisplaySettings } from './DisplaySettings'
 import { BackendStatus } from './BackendStatus'
 import { VoiceStatusDisplay } from './VoiceStatus'
 import { ModelConfig } from './ModelConfig'
+import { BackupPanel } from './BackupPanel'
 
 type Props = { preferences: Preferences; onPreferences: (next: Preferences) => void }
 
@@ -43,6 +44,7 @@ export function SettingsShell({ preferences, onPreferences }: Props) {
       <BackendStatus health={health} loading={loading} />
       <VoiceStatusDisplay voice={voice} />
       <ModelConfig settings={settings} loading={loading} />
+      <BackupPanel />
     </div>
   )
 }

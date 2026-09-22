@@ -299,6 +299,8 @@ export function ChatShell({
           persons={persons}
           selectedPersonId={selectedPersonId}
           onSelectPerson={onSelectPerson}
+          conversationId={activeConversationId}
+          projectId={selectedProjectId}
         />
 
         {error && <div className="error" onClick={() => setError(null)}>{error}</div>}

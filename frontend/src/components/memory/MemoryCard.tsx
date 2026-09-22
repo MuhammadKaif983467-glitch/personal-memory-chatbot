@@ -3,6 +3,7 @@ import MemoryEditor from './MemoryEditor'
 import MemoryCorrectionEditor from './MemoryCorrectionEditor'
 import MemoryHistory from './MemoryHistory'
 import MemorySource from './MemorySource'
+import { MemoryRelationships } from './MemoryRelationships'
 
 interface Props {
   memory: Memory
@@ -14,6 +15,7 @@ interface Props {
   versionCache: Record<number, MemoryVersion[]>
   expandedSource: Set<number>
   sourceCache: Record<number, MessageRecord>
+  expandedRelationships: Set<number>
   onEditContentChange: (v: string) => void
   onCorrectContentChange: (v: string) => void
   onSaveEdit: (id: number) => void
@@ -25,6 +27,7 @@ interface Props {
   onToggleVersions: (id: number) => void
   onToggleSource: (msgId: number) => void
   onDelete: (id: number) => void
+  onToggleRelationships: (id: number) => void
   personName: (id: number) => string
 }
 
@@ -36,9 +39,10 @@ function formatShortDate(value?: string | null): string {
 export default function MemoryCard({
   memory, editingId, correctingId, editContent, correctContent,
   expandedVersions, versionCache, expandedSource, sourceCache,
+  expandedRelationships,
   onEditContentChange, onCorrectContentChange, onSaveEdit, onSaveCorrect,
   onCancelEdit, onCancelCorrect, onStartEdit, onStartCorrect,
-  onToggleVersions, onToggleSource, onDelete, personName,
+  onToggleVersions, onToggleSource, onDelete, onToggleRelationships, personName,
 }: Props) {
   const m = memory
   const chipClass = (t: string) => `chip chip-${t.toLowerCase()}`
@@ -89,6 +93,9 @@ export default function MemoryCard({
         <button className="btn btn-ghost" style={{ padding: '3px 10px', fontSize: '0.75rem' }} onClick={() => onToggleVersions(m.id)}>
           {expandedVersions.has(m.id) ? 'Hide history' : 'History'}
         </button>
+        <button className="btn btn-ghost" style={{ padding: '3px 10px', fontSize: '0.75rem' }} onClick={() => onToggleRelationships(m.id)}>
+          {expandedRelationships.has(m.id) ? 'Hide links' : 'Links'}
+        </button>
         <button className="btn btn-danger" style={{ padding: '3px 10px', fontSize: '0.75rem' }} onClick={() => onDelete(m.id)} disabled={busy}>
           Delete
         </button>
@@ -96,6 +103,10 @@ export default function MemoryCard({
 
       {expandedVersions.has(m.id) && (
         <MemoryHistory versions={versionCache[m.id]} loading={!versionCache[m.id]} />
+      )}
+
+      {expandedRelationships.has(m.id) && (
+        <MemoryRelationships memoryId={m.id} />
       )}
     </div>
   )

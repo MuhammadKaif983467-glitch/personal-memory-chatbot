@@ -1,11 +1,14 @@
 import type { Person } from '../../types'
 import { Avatar } from '../ui/Avatar'
+import { SummaryButton } from './SummaryButton'
 
 type Props = {
   person: Person | null
   persons: Person[]
   selectedPersonId: number | null
   onSelectPerson: (id: number | null) => void
+  conversationId?: number | null
+  projectId?: number | null
 }
 
 function isCombinedName(name: string): boolean {
@@ -17,6 +20,8 @@ export function ConversationHeader({
   persons,
   selectedPersonId,
   onSelectPerson,
+  conversationId,
+  projectId,
 }: Props) {
   const filteredPersons = persons.filter((p) => !isCombinedName(p.name))
 
@@ -32,7 +37,7 @@ export function ConversationHeader({
           'Select a person'
         )}
       </div>
-      <div className="head-sub">
+      <div className="head-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <select
           value={selectedPersonId ?? ''}
           onChange={(e) => {
@@ -45,6 +50,7 @@ export function ConversationHeader({
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
+        <SummaryButton conversationId={conversationId ?? null} projectId={projectId} />
       </div>
     </div>
   )

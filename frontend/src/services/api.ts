@@ -20,6 +20,9 @@ import type {
   SearchResponse,
   VoiceStatus,
   WritingStyle,
+  BackupInfo,
+  SummaryInfo,
+  MemoryRelationship,
 } from '../types'
 import { classifyHttpError, classifyNetworkError, type ClassifiedError } from './errors'
 
@@ -290,6 +293,28 @@ export const api = {
         limit: params.limit ?? 20,
       },
     }),
+
+  listBackups: () => request<BackupInfo[]>('/backup'),
+  createBackup: (label?: string) =>
+    request<BackupInfo>('/backup/create', { method: 'POST', body: { label: label ?? '' } }),
+  validateBackup: (path: string) =>
+    request<BackupInfo>('/backup/validate', { method: 'POST', body: { backup_path: path } }),
+  restoreBackup: (path: string) =>
+    request<BackupInfo>('/backup/restore', { method: 'POST', body: { backup_path: path } }),
+
+  getSummary: (conversationId: number) =>
+    request<SummaryInfo>(`/summaries/${conversationId}`),
+  generateSummary: (conversationId: number, projectId?: number) =>
+    request<SummaryInfo>('/summaries/generate', { method: 'POST', body: { conversation_id: conversationId, project_id: projectId } }),
+  deleteSummary: (conversationId: number) =>
+    request<{ deleted: boolean }>(`/summaries/${conversationId}`, { method: 'DELETE' }),
+
+  listMemoryRelationships: (memoryId: number) =>
+    request<MemoryRelationship[]>(`/memories/${memoryId}/relationships`),
+  createMemoryRelationship: (payload: { source_memory_id: number; target_memory_id: number; relationship_type: string; confidence?: number; project_id: number }) =>
+    request<MemoryRelationship>('/memory-relationships', { method: 'POST', body: payload }),
+  deleteMemoryRelationship: (id: number) =>
+    request<void>(`/memory-relationships/${id}`, { method: 'DELETE' }),
 
   importJson: (payload: unknown) =>
     request<ImportResult>('/import/json', { method: 'POST', body: payload }),
