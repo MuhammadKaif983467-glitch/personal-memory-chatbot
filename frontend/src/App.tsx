@@ -10,6 +10,7 @@ import { ImportShell } from './components/import'
 import { SettingsShell } from './components/settings'
 import { CreateProjectModal } from './components/projects'
 import { EditProjectModal } from './components/projects'
+import { GlobalSearch } from './components/search/GlobalSearch'
 
 type Tab = 'chat' | 'memories' | 'people' | 'import' | 'settings'
 type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DEGRADED' | 'OFFLINE'
@@ -82,6 +83,7 @@ function AppShell() {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [showEditProject, setShowEditProject] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null)
   const [preferences, setPreferences] = useState<Preferences>(() => loadPreferences())
   const [error, setError] = useState<string | null>(null)
@@ -164,6 +166,17 @@ function AppShell() {
     }
   }, [refresh])
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowSearch(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   const updatePreferences = useCallback((next: Preferences) => {
     setPreferences(next)
     savePreferences(next)
@@ -236,6 +249,18 @@ function AppShell() {
               <span>{item.label}</span>
             </button>
           ))}
+          <button
+            type="button"
+            className="sidebar-nav-item"
+            onClick={() => setShowSearch(true)}
+            title="Search (Ctrl+K)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <span>Search</span>
+          </button>
         </nav>
 
         <div className="sidebar-project-select">
@@ -367,6 +392,20 @@ function AppShell() {
           }}
         />
       )}
+
+      <GlobalSearch
+        open={showSearch}
+        onClose={() => setShowSearch(false)}
+        projectId={selectedProjectId}
+        onSelectConversation={() => {
+          setTab('chat')
+          setShowSearch(false)
+        }}
+        onSelectPerson={(id) => {
+          setSelectedPersonId(id)
+          setShowSearch(false)
+        }}
+      />
     </div>
   )
 }

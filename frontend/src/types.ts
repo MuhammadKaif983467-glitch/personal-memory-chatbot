@@ -320,6 +320,41 @@ type ChatTurn = {
   speakerName?: string
 }
 
+type SearchMessageHit = {
+  message_id: number
+  conversation_id: number
+  conversation_title: string
+  sender: string
+  content: string
+  timestamp?: string | null
+}
+
+type SearchMemoryHit = {
+  memory_id: number
+  person_id: number
+  person_name: string
+  content: string
+  memory_type: string
+  confidence: number
+  status: string
+  created_at?: string | null
+}
+
+type SearchConversationHit = {
+  conversation_id: number
+  title: string
+  message_count: number
+  matched: boolean
+}
+
+type SearchResponse = {
+  query: string
+  messages: SearchMessageHit[]
+  memories: SearchMemoryHit[]
+  conversations: SearchConversationHit[]
+  total: number
+}
+
 export type {
   Person,
   ProjectParticipant,
@@ -352,4 +387,8 @@ export type {
   ImportPreviewItem,
   ImportPreview,
   PaginatedMessages,
+  SearchMessageHit,
+  SearchMemoryHit,
+  SearchConversationHit,
+  SearchResponse,
 }

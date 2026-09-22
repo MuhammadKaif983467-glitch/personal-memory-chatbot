@@ -17,6 +17,7 @@ import type {
   ProjectCreatePayload,
   ProjectDetail,
   ProjectUpdatePayload,
+  SearchResponse,
   VoiceStatus,
   WritingStyle,
 } from '../types'
@@ -275,6 +276,20 @@ export const api = {
     }),
 
   getSettings: () => request<AppSettings>('/settings'),
+
+  search: (params: { query: string; project_id?: number; person_id?: number; conversation_id?: number; memory_type?: string; status?: string; limit?: number }) =>
+    request<SearchResponse>('/search', {
+      method: 'POST',
+      body: {
+        query: params.query,
+        project_id: params.project_id,
+        person_id: params.person_id,
+        conversation_id: params.conversation_id,
+        memory_type: params.memory_type,
+        status: params.status ?? 'active',
+        limit: params.limit ?? 20,
+      },
+    }),
 
   importJson: (payload: unknown) =>
     request<ImportResult>('/import/json', { method: 'POST', body: payload }),
