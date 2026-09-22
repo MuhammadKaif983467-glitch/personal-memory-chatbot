@@ -61,7 +61,7 @@ export function MessageList({
   }
 
   return (
-    <div className="transcript" ref={containerRef}>
+    <div className="transcript" ref={containerRef} role="log" aria-label="Conversation messages" aria-live="polite">
       {turns.map((t, i) => (
         <MessageBubble
           key={t.id}
@@ -73,7 +73,7 @@ export function MessageList({
       ))}
 
       {sending && (
-        <div className="bubble-row bubble-assistant">
+        <div className="bubble-row bubble-assistant" role="status" aria-label="Assistant is typing">
           <Avatar name={personName || '?'} size="sm" />
           <div className="bubble">
             <div className="typing-indicator">

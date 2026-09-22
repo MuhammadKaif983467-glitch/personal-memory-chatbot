@@ -232,18 +232,19 @@ function AppShell() {
 
   return (
     <div className="app app-layout">
-      <aside className="sidebar">
+      <aside className="sidebar" aria-label="Main navigation">
         <div className="sidebar-brand">
           <h1>Memory</h1>
         </div>
 
-        <nav className="sidebar-nav">
+        <nav className="sidebar-nav" aria-label="Main menu">
           {TAB_ITEMS.map((item) => (
             <button
               key={item.key}
               type="button"
               className={`sidebar-nav-item${tab === item.key ? ' active' : ''}`}
               onClick={() => setTab(item.key)}
+              aria-current={tab === item.key ? 'page' : undefined}
             >
               {item.icon}
               <span>{item.label}</span>
@@ -254,6 +255,7 @@ function AppShell() {
             className="sidebar-nav-item"
             onClick={() => setShowSearch(true)}
             title="Search (Ctrl+K)"
+            aria-label="Search (Ctrl+K)"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" />
@@ -265,7 +267,7 @@ function AppShell() {
 
         <div className="sidebar-project-select">
           <div className="row" style={{ gap: 6 }}>
-            <select className="input" style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }} value={selectedProjectId ?? ''} onChange={handleProjectChange}>
+            <select className="input" style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }} value={selectedProjectId ?? ''} onChange={handleProjectChange} aria-label="Select project">
               <option value="">All projects</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>

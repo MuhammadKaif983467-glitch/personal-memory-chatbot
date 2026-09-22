@@ -352,6 +352,7 @@ export function ChatShell({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              aria-label={`Message ${person?.name ?? ''}`}
               placeholder={
                 providerAvailable
                   ? `Message ${person?.name ?? ''}...`
@@ -363,6 +364,7 @@ export function ChatShell({
               className="composer-send"
               disabled={!input.trim() || sending || !providerAvailable}
               onClick={handleSend}
+              aria-label="Send message"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13" />

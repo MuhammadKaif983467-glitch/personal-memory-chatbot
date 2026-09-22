@@ -20,19 +20,19 @@ export function ConversationRail({
   onNew,
 }: Props) {
   return (
-    <aside className="conversation-rail">
+    <aside className="conversation-rail" aria-label="Conversations">
       <div className="rail-head">
         <span>Conversations</span>
-        <button className="icon-btn" onClick={onNew} title="New conversation">
+        <button className="icon-btn" onClick={onNew} title="New conversation" aria-label="New conversation">
           +
         </button>
       </div>
-      <div className="rail-summary">
+      <div className="rail-summary" aria-live="polite">
         {conversations.length} conversations
       </div>
-      <div className="conversation-list">
+      <div className="conversation-list" role="listbox" aria-label="Conversation list">
         {activeConversationId === null && personName && (
-          <div className="conv-row active-row">
+          <div className="conv-row active-row" role="option" aria-selected="true">
             <button className="conv-row-btn" onClick={onNew}>
               <div className="conv-title">New conversation</div>
             </button>
@@ -42,6 +42,8 @@ export function ConversationRail({
           <div
             key={c.id}
             className={`conv-row${c.id === activeConversationId ? ' active-row' : ''}`}
+            role="option"
+            aria-selected={c.id === activeConversationId}
           >
             <button
               className="conv-row-btn"
@@ -58,6 +60,7 @@ export function ConversationRail({
             <button
               className="conv-delete"
               title="Delete"
+              aria-label={`Delete conversation ${c.title || c.id}`}
               disabled={deletingId === c.id}
               onClick={(e) => { e.stopPropagation(); onDelete(c.id) }}
             >
