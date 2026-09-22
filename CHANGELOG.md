@@ -2,6 +2,108 @@
 
 All notable changes to the Personal Memory Chatbot.
 
+## [3.4.0] - 2026-09-22
+
+Major upgrade — conversation-aware retrieval, ranking pipeline, memory graph, provider diagnostics, observability, quality evaluation, security hardening, global search, accessibility.
+
+### V3.4 Phase 1 — Conversation-Aware Retrieval
+
+#### Added
+
+- `conversation_id`, `date_from`, `date_to` parameters to `RetrievalService.retrieve()`
+- Conversation context boost (1.3x) for memories from active conversation
+- Same-person boost (1.1x) for memories from the current person
+- `context_reason` field on `RetrievedMemory` explaining why a memory was retrieved
+
+#### Changed
+
+- `ChatService.handle()` and `answer_preview()` pass `conversation_id` to retrieval
+
+### V3.4 Phase 2 — Advanced Retrieval Ranking
+
+#### Added
+
+- `RankingWeights` dataclass with configurable weight parameters (default 1.0 each)
+- `RetrievalExplanation` for debugging retrieval decisions
+- Power-based scoring: `similarity^w * recency^w * importance^w * confidence^w`
+- Extracted `_score()` method for DRY scoring
+
+### V3.4 Phase 3 — Optional Reranking
+
+#### Added
+
+- `Reranker` abstract base class for custom reranking strategies
+- `IdentityReranker` — identity pass-through (no reranking)
+- `LexicalReranker` — term overlap reranking for lexical diversity
+- `RerankingPipeline` with config, timeout, and graceful fallback
+
+### V3.4 Phases 5-7 — Memory Graph Traversal
+
+#### Added
+
+- `MemoryGraphService` with BFS traversal, cycle detection, bounded depth/nodes
+- Configurable `max_depth` (default 2) and `max_nodes` (default 50)
+- Graph neighborhood retrieval, statistics, and validation
+- Project isolation at traversal level
+
+### V3.4 Phases 8-10 — Provider Diagnostics & Offline Degradation
+
+#### Added
+
+- `ProviderDiagnostics` with safe diagnostics (no secrets)
+- `OfflineDegradation` state machine (UNKNOWN→HEALTHY→DEGRADED→OPEN→RECOVERING)
+
+### V3.4 Phases 11-12 — Observability & Quality Evaluation
+
+#### Added
+
+- `ObservabilityCollector` with request metrics and bounded storage
+- `LatencyTracker` context manager for operation timing
+- `RetrievalEvaluator`: relevance, isolation, deduplication
+- `MemoryEvaluator`: extraction, correction
+- `IdentityEvaluator`: ME/OTHER, generic name detection
+- `SecurityEvaluator`: prompt injection, project isolation
+
+### V3.4 Phase 13 — Large-Data Scalability
+
+#### Added
+
+- 10k message import, 5k FTS search, 1k memory retrieval performance tests
+
+### V3.4 Phase 14+18 — Global Search
+
+#### Added
+
+- `GlobalSearch` component with debounced search across messages, memories, conversations
+- `Cmd+K` / `Ctrl+K` keyboard shortcut for quick access
+- Search button in sidebar for discoverability
+
+### V3.4 Phases 15-17 — Backup, Summary, Relationship UI
+
+#### Added
+
+- `BackupPanel`: list, create, restore backups from settings
+- `SummaryButton`: fetch/generate and display conversation summaries
+- `MemoryRelationships`: display linked memories with relationship type
+- MemoryCard Links button to expand relationship graph
+
+### V3.4 Phase 20 — Security Hardening
+
+#### Added
+
+- `InputSanitizer`: XSS and SQL injection detection
+- `RateLimiter`: sliding window rate limiting per client IP
+- `SecurityMiddleware`: security headers (nosniff, DENY, XSS-Protection)
+
+### V3.4 Phase 22 — Accessibility
+
+#### Added
+
+- ARIA labels on sidebar nav, conversation list, composer, message list
+- `role=listbox`, `aria-selected`, `aria-live` for screen readers
+- `focus-visible` outlines for keyboard navigation
+- `aria-current="page"` on active tab
+
 ## [3.3.0] - 2026-09-21
 
 Production release — database hardening, FTS5, backup/recovery, memory relationships, summaries, Playwright E2E.
