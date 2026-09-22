@@ -1,16 +1,21 @@
-"""Retrieval service with conversation-aware context.
+"""Retrieval service with configurable ranking pipeline.
 
 Pipeline for a question:
   1. embed the question
   2. search the vector store (optionally filtered by person)
-  3. drop low-confidence and low-similarity candidates
-  4. rank by similarity x recency x importance x confidence x context boost
-  5. de-duplicate memories, keep the best hit per memory
+  3. security filtering (project isolation, confidence threshold)
+  4. conversation filtering (date range, conversation context)
+  5. scoring with configurable weights
+  6. deduplication
+  7. ranking
+  8. context budget truncation
 
 V3.4 adds:
-  - conversation_id filtering and boost
+  - configurable ranking weights (documented, no magic numbers)
+  - retrieval explanations for debugging
+  - conversation-aware context boost
   - date range filtering
-  - configurable ranking weights
+  - same-person boost
 """
 
 from __future__ import annotations
@@ -35,9 +40,42 @@ logger = get_logger("retrieval")
 _RECENCY_HALF_LIFE_DAYS = 90.0
 _MIN_SIMILARITY = 0.18
 
-# Context boost factors
-_CONVERSATION_BOOST = 1.3
-_SAME_PERSON_BOOST = 1.1
+
+@dataclass
+class RankingWeights:
+    """Configurable ranking weights for the retrieval scoring pipeline.
+
+    Each weight controls the contribution of a signal to the final score.
+    The final score is computed as:
+        similarity^w_similarity * recency^w_recency * importance^w_importance
+        * confidence^w_confidence * context_boost
+
+    Default weights are tuned for a personal memory assistant where
+    semantic similarity and confidence matter most.
+    """
+    similarity: float = 1.0
+    recency: float = 1.0
+    importance: float = 0.5
+    confidence: float = 0.5
+    conversation_boost: float = 1.3
+    same_person_boost: float = 1.1
+
+
+@dataclass
+class RetrievalExplanation:
+    """Explains why a memory was selected and how it was scored.
+
+    Used for debugging retrieval decisions. Not exposed to end users
+    unless debug_retrieval is enabled.
+    """
+    similarity: float = 0.0
+    recency: float = 0.0
+    importance_raw: float = 0.0
+    confidence_raw: float = 0.0
+    context_reason: str = ""
+    base_score: float = 0.0
+    final_score: float = 0.0
+    source: str = "vector"  # "vector" | "lexical"
 
 
 @dataclass
@@ -48,6 +86,7 @@ class RetrievedMemory:
     rank: int = 0
     matched_documents: Sequence[str] = field(default_factory=list)
     context_reason: str = ""
+    explanation: Optional[RetrievalExplanation] = None
 
 
 class RetrievalService:
@@ -59,13 +98,55 @@ class RetrievalService:
         min_confidence: float = 0.5,
         default_limit: int = 12,
         min_similarity: float = _MIN_SIMILARITY,
+        weights: Optional[RankingWeights] = None,
     ) -> None:
         self.embedding = embedding
         self.vector_store = vector_store
         self.min_confidence = min_confidence
         self.default_limit = default_limit
         self.min_similarity = min_similarity
+        self.weights = weights or RankingWeights()
         self.offline = bool(getattr(getattr(embedding, "provider", None), "offline", False))
+
+    def _score(
+        self,
+        similarity: float,
+        created_at: datetime,
+        importance: float,
+        confidence: float,
+        context_reason: str = "",
+    ) -> tuple[float, RetrievalExplanation]:
+        """Compute retrieval score with configurable weights and return explanation."""
+        now = datetime.now(timezone.utc)
+        age_days = max(0.0, (now - (created_at.replace(tzinfo=timezone.utc) if created_at.tzinfo is None else created_at)).total_seconds() / 86400.0)
+        recency = math.exp(-age_days / _RECENCY_HALF_LIFE_DAYS)
+
+        w = self.weights
+        base_score = (
+            math.pow(similarity, w.similarity)
+            * math.pow(recency, w.recency)
+            * math.pow(0.5 + importance / 2.0, w.importance)
+            * math.pow(0.5 + confidence / 2.0, w.confidence)
+        )
+
+        context_boost = 1.0
+        if context_reason == "current_conversation":
+            context_boost = w.conversation_boost
+        elif context_reason == "same_person":
+            context_boost = w.same_person_boost
+
+        final_score = base_score * context_boost
+
+        explanation = RetrievalExplanation(
+            similarity=similarity,
+            recency=recency,
+            importance_raw=importance,
+            confidence_raw=confidence,
+            context_reason=context_reason,
+            base_score=base_score,
+            final_score=final_score,
+        )
+        return final_score, explanation
 
     def retrieve(
         self,
@@ -104,9 +185,8 @@ class RetrievalService:
         memories_repo = MemoryRepository(session)
         memory_ids = [h.memory_id for h in hits if h.memory_id]
         memories = {m.id: m for m in memories_repo.get_by_ids(memory_ids)}
-        now = datetime.now(timezone.utc)
 
-        # Pre-fetch source message IDs for conversation context boost
+        # Conversation context: find memories sourced from messages in this conversation
         conversation_memories = set()
         if conversation_id is not None:
             from app.database.models import Message
@@ -115,7 +195,6 @@ class RetrievalService:
                     select(Message.id).where(Message.conversation_id == conversation_id)
                 ).all()
             )
-            # Find memories sourced from messages in this conversation
             conversation_memories = {
                 mem.id for mem in session.scalars(
                     select(Memory).where(
@@ -131,12 +210,15 @@ class RetrievalService:
             memory = memories.get(hit.memory_id)
             if memory is None or memory.status != "active":
                 continue
+            # Security: project isolation
             if project_id is not None and memory.project_id != project_id:
                 continue
             if memory_type is not None and memory.memory_type != memory_type:
                 continue
+            # Security: confidence threshold
             if memory.confidence < self.min_confidence:
                 continue
+            # Temporal filtering
             if date_from is not None and memory.created_at is not None:
                 mem_dt = memory.created_at.replace(tzinfo=timezone.utc) if memory.created_at.tzinfo is None else memory.created_at
                 if mem_dt < date_from:
@@ -153,19 +235,18 @@ class RetrievalService:
             if similarity < self.min_similarity:
                 continue
 
-            age_days = max(0.0, (now - (memory.created_at.replace(tzinfo=timezone.utc) if memory.created_at.tzinfo is None else memory.created_at)).total_seconds() / 86400.0)
-            recency = math.exp(-age_days / _RECENCY_HALF_LIFE_DAYS)
-            importance_norm = 0.5 + (memory.importance or 0.5) / 2.0
-            confidence_norm = 0.5 + (memory.confidence or 0.5) / 2.0
-            score = similarity * recency * importance_norm * confidence_norm
-
-            context_reason = ""
+            # Determine context reason
+            ctx_reason = ""
             if conversation_id is not None and memory.id in conversation_memories:
-                score *= _CONVERSATION_BOOST
-                context_reason = "current_conversation"
+                ctx_reason = "current_conversation"
             elif person_id is not None and memory.person_id == person_id:
-                score *= _SAME_PERSON_BOOST
-                context_reason = "same_person"
+                ctx_reason = "same_person"
+
+            score, explanation = self._score(
+                similarity, memory.created_at, memory.importance or 0.5,
+                memory.confidence or 0.5, ctx_reason,
+            )
+            explanation.source = "vector"
 
             existing = candidates.get(memory.id)
             if existing is None or score > existing.score:
@@ -174,13 +255,14 @@ class RetrievalService:
                     similarity=similarity,
                     score=score,
                     matched_documents=[hit.document],
-                    context_reason=context_reason,
+                    context_reason=ctx_reason,
+                    explanation=explanation,
                 )
 
         ranked = sorted(candidates.values(), key=lambda r: r.score, reverse=True)[:limit]
         for index, item in enumerate(ranked):
             item.rank = index + 1
-        logger.info("Retrieved %d memories for question (person=%s, conv=%s)", len(ranked), person_id, conversation_id)
+        logger.info("Retrieved %d memories (person=%s, conv=%s)", len(ranked), person_id, conversation_id)
         return ranked
 
     def _lexical_retrieve(
@@ -234,7 +316,6 @@ class RetrievalService:
                 if mem.source_message_id is not None and mem.source_message_id in conv_message_ids
             }
 
-        now = datetime.now(timezone.utc)
         scored: list[RetrievedMemory] = []
         for memory in memories:
             similarity = best_relevance(question, memory.content or "")
@@ -242,19 +323,18 @@ class RetrievalService:
                 continue
             if memory.confidence < self.min_confidence:
                 continue
-            age_days = max(0.0, (now - (memory.created_at.replace(tzinfo=timezone.utc) if memory.created_at.tzinfo is None else memory.created_at)).total_seconds() / 86400.0)
-            recency = math.exp(-age_days / _RECENCY_HALF_LIFE_DAYS)
-            importance_norm = 0.5 + (memory.importance or 0.5) / 2.0
-            confidence_norm = 0.5 + (memory.confidence or 0.5) / 2.0
-            score = similarity * recency * importance_norm * confidence_norm
 
-            context_reason = ""
+            ctx_reason = ""
             if conversation_id is not None and memory.id in conversation_memories:
-                score *= _CONVERSATION_BOOST
-                context_reason = "current_conversation"
+                ctx_reason = "current_conversation"
             elif person_id is not None and memory.person_id == person_id:
-                score *= _SAME_PERSON_BOOST
-                context_reason = "same_person"
+                ctx_reason = "same_person"
+
+            score, explanation = self._score(
+                similarity, memory.created_at, memory.importance or 0.5,
+                memory.confidence or 0.5, ctx_reason,
+            )
+            explanation.source = "lexical"
 
             scored.append(
                 RetrievedMemory(
@@ -262,12 +342,13 @@ class RetrievalService:
                     similarity=similarity,
                     score=score,
                     matched_documents=[memory.content or ""],
-                    context_reason=context_reason,
+                    context_reason=ctx_reason,
+                    explanation=explanation,
                 )
             )
         ranked = sorted(scored, key=lambda r: r.score, reverse=True)[:limit]
         for index, item in enumerate(ranked):
             item.rank = index + 1
         if ranked:
-            logger.info("Lexical retrieval fallback found %d memories (person=%s, conv=%s)", len(ranked), person_id, conversation_id)
+            logger.info("Lexical retrieval found %d memories (person=%s, conv=%s)", len(ranked), person_id, conversation_id)
         return ranked
